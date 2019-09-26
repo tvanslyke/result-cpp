@@ -7,12 +7,33 @@ namespace tim {
 
 inline namespace result {
 
-namespace detail {
 
-template <class T, class E, bool = std::is_nothrow_default_constructible_v<E>>
+template <class T, class E>
 struct Result;
 
 inline constexpr struct valueless_tag_t {} valueless_tag;
+
+namespace detail {
+
+template <class T>
+struct ManualScopeGuard {
+
+	~ManualScopeGuard() {
+		if(active) {
+			std::invoke(action);
+		}
+	}
+
+	T action;
+	bool active;
+};
+
+template <class T>
+ManualScopeGuard<std::decay_t<T>> make_manual_scope_guard(T&& action) {
+	return ManualScopeGuard<std::decay_t<T>>{std::forward<T>(action), true};
+}
+
+
 struct EmptyAlternative {
 	constexpr EmptyAlternative() = default;
 	constexpr EmptyAlternative(const EmptyAlternative&) = default;
@@ -89,7 +110,7 @@ struct ResultUnionImpl<MemberStatus::Defaulted, T, E> {
 
 	union {
 		EmptyAlternative empty = EmptyAlternative();
-		T value;
+		std::conditional_t<std::is_same_v<T, void>, EmptyAlternative, T> value;
 		E error;
 	};
 };
@@ -139,7 +160,7 @@ struct ResultUnionImpl<MemberStatus::Deleted, T, E> {
 
 	union {
 		EmptyAlternative empty = EmptyAlternative();
-		T value;
+		std::conditional_t<std::is_same_v<T, void>, EmptyAlternative, T> value;
 		E error;
 	};
 };
@@ -189,7 +210,7 @@ struct ResultUnionImpl<MemberStatus::Defined, T, E> {
 
 	union {
 		EmptyAlternative empty = EmptyAlternative();
-		T value;
+		std::conditional_t<std::is_same_v<T, void>, EmptyAlternative, T> value;
 		E error;
 	};
 };
@@ -215,24 +236,32 @@ struct ResultBaseMethods {
 		
 	}
 
-	constexpr const T& value() const { return data_.value; }
-	constexpr       T& value()       { return data_.value; }
+	constexpr const T& value() const { return *std::launder(std::addressof(data_.value)); }
+	constexpr       T& value()       { return *std::launder(std::addressof(data_.value)); }
 
-	constexpr const E& error() const { return data_.error; }
-	constexpr       E& error()       { return data_.error; }
+	constexpr const E& error() const { return *std::launder(std::addressof(data_.error)); }
+	constexpr       E& error()       { return *std::launder(std::addressof(data_.error)); }
 
 	constexpr const bool& has_value() const noexcept { return base_.has_value(); }
 	constexpr bool&       has_value()       noexcept { return base_.has_value(); }
 
+	constexpr void destruct_value() noexcept {
+		if constexpr(!std::is_same_v<T, void> && !std::is_trivially_destructible_v<T>) {
+			std::destroy_at(&data_.value);
+		}
+	}
+
+	constexpr void destruct_error() noexcept {
+		if constexpr(!std::is_trivially_destructible_v<E>) {
+			std::destroy_at(&data_.error);
+		}
+	}
+
 	constexpr void destruct() noexcept {
 		if(has_value()) {
-			if constexpr(!std::is_trivially_destructible_v<T>) {
-				std::destroy_at(&data_.value);
-			}
+			destruct_value();
 		} else {
-			if constexpr(!std::is_trivially_destructible_v<E>) {
-				std::destroy_at(&data_.error);
-			}
+			destruct_error();
 		}
 	}
 
@@ -588,6 +617,14 @@ struct ResultCopyConstructor<MemberStatus::Defined, T, E>
 	constexpr const bool& has_value() const noexcept { return base_.has_value(); }
 	constexpr bool&       has_value()       noexcept { return base_.has_value(); }
 
+	constexpr void destruct_value() noexcept {
+		return base_.destruct_value();
+	}
+
+	constexpr void destruct_error() noexcept {
+		return base_.destruct_error();
+	}
+
 	constexpr void destruct() noexcept {
 		return base_.destruct();
 	}
@@ -682,6 +719,13 @@ struct ResultMoveConstructor<MemberStatus::Defined, T, E> {
 	constexpr const bool& has_value() const noexcept { return base_.has_value(); }
 	constexpr bool&       has_value()       noexcept { return base_.has_value(); }
 
+	constexpr void destruct_value() noexcept {
+		return base_.destruct_value();
+	}
+
+	constexpr void destruct_error() noexcept {
+		return base_.destruct_error();
+	}
 
 	constexpr void destruct() noexcept {
 		return base_.destruct();
@@ -773,62 +817,48 @@ private:
 
 	constexpr void copy_assign_case(const ResultCopyAssign& other, std::false_type, std::true_type) {
 		if constexpr(std::is_same_v<T, void>) {
+			destruct_error();
+		} else if constexpr(std::is_nothrow_copy_constructible_v<T>) {
+			destruct_error();
+			new (std::addresof(this->value())) T(other.value());
+		} else if constexpr(std::is_nothrow_move_constructible_v<T>) {
+			T tmp(other.value());
+			destruct_error();
+			new (std::addresof(this->value())) T(std::move(tmp));
 		} else {
-			
+			static_assert(std::is_nothrow_move_constructible_v<E>);
+			E tmp(std::move(this->error()));
+			destruct_error();
+			auto guard = make_manual_scope_guard([&](){
+				new (std::addressof(this->error())) E(std::move(tmp));
+			});
+			new (std::addressof(this->value())) T(other.value());
+			gaurd.active = false;
 		}
 		has_value() = true;
 	}
 
-	constexpr void do_copy_assign(const ResultCopyAssign& other) {
-		visit_index<size>([&](auto right_idx_) {
-			constexpr auto right_idx = right_idx_.value;
-			using type = std::result_alternative_t<right_idx, std::result<T, E>>;
-			using bare_type = std::remove_cv_t<type>;
-			if constexpr(can_be_valueless()) {
-				if(this->valueless_by_exception()) {
-					new (std::addressof(get_v<right_idx>(this->raw_alts()))) type(get_v<right_idx>(other.raw_alts()));
-					this->raw_index() = right_idx;
-					return;
-				}
-			} else {
-				assert(not this->valueless_by_exception());
-				assert(not other.valueless_by_exception());
-			}
-			visit_index<size>([&](auto left_idx_) {
-				constexpr auto left_idx  = left_idx_.value;
-				using current_type = std::result_alternative_t<left_idx, std::result<T, E>>;
-				using bare_current_type = std::remove_cv_t<current_type>;
-				if constexpr(left_idx == right_idx) {
-					get_v<left_idx>(this->raw_alts()) = get_v<right_idx>(other.raw_alts());
-				} else if constexpr(std::is_nothrow_copy_constructible_v<type>) {
-					this->make_valueless(left_idx_);
-					new (std::addressof(get_v<right_idx>(this->raw_alts()))) type(get_v<right_idx>(other.raw_alts()));
-					this->raw_index() = right_idx;
-				} else if constexpr(std::is_nothrow_move_constructible_v<type>) {
-					type cpy(get_v<right_idx>(other.raw_alts()));
-					this->make_valueless(left_idx_);
-					new (std::addressof(get_v<right_idx>(this->raw_alts()))) type(std::move(cpy));
-					this->raw_index() = right_idx;
-				} else if constexpr(std::is_nothrow_move_constructible_v<current_type>) {
-					current_type tmp(std::move(get_v<left_idx>(this->raw_alts())));
-					{
-						auto g_ = make_manual_scope_guard([&]{
-							new (std::addressof(get_v<left_idx>(this->raw_alts()))) current_type(std::move(tmp));
-							this->raw_index() = left_idx;
-						});
-						this->make_valueless(left_idx_);
-						new (std::addressof(get_v<right_idx>(this->raw_alts()))) type(get_v<right_idx>(other.raw_alts()));
-						g_.active = false;
-					}
-					this->raw_index() = right_idx;
-				} else {
-					// current_type tmp(std::move(get_v<left_idx>(this->raw_alts())));
-					this->make_valueless(left_idx_);
-					new (std::addressof(get_v<right_idx>(this->raw_alts()))) type(std::move(get_v<right_idx>(other.raw_alts())));
-					this->raw_index() = right_idx;
-				}
-			}, this->raw_index());
-		}, other.raw_index());
+	constexpr void copy_assign_case(const ResultCopyAssign& other, std::true_type, std::false_type) {
+		if constexpr(std::is_same_v<T, void>) {
+			new (std::adderssof(this->error()) E(other.error());
+		} else if constexpr(std::is_nothrow_copy_constructible_v<E>) {
+			destruct_value();
+			new (std::adderssof(this->error()) E(other.error());
+		} else if constexpr(std::is_nothrow_move_constructible_v<T>) {
+			E tmp(other.error());
+			destruct_value();
+			new (std::addresof(this->value())) E(std::move(tmp));
+		} else {
+			static_assert(std::is_nothrow_move_constructible_v<T>);
+			T tmp(std::move(this->value()));
+			destruct_value();
+			auto guard = make_manual_scope_guard([&](){
+				new (std::addressof(this->value())) T(std::move(tmp));
+			});
+			new (std::addressof(this->error())) E(other.error());
+			gaurd.active = false;
+		}
+		has_value() = false;
 	}
 };
 
