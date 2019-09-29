@@ -2,6 +2,7 @@
 #define TIM_RESULT_HPP
 
 #include <type_traits>
+#include <optional>
 
 namespace tim {
 
@@ -9,8 +10,6 @@ inline namespace result {
 
 template <class T, class E>
 struct Result;
-
-inline constexpr struct valueless_tag_t {} valueless_tag;
 
 namespace detail {
 
@@ -21,9 +20,7 @@ template <class T>
 using is_cv_void = std::is_same<std::remove_cv_t<T>, void>;
 
 template <class T>
-inline constexpr bool is_cv_void = std::is_same_v<std::remove_cv_t<T>, void>;
-
-
+inline constexpr bool is_cv_void_v = is_cv_void<T>::value;
 
 template <class T>
 struct ManualScopeGuard {
@@ -43,18 +40,12 @@ ManualScopeGuard<std::decay_t<T>> make_manual_scope_guard(T&& action) {
 	return ManualScopeGuard<std::decay_t<T>>{std::forward<T>(action), true};
 }
 
-
-struct EmptyAlternative {
-	constexpr EmptyAlternative() = default;
-	constexpr EmptyAlternative(const EmptyAlternative&) = default;
-	constexpr EmptyAlternative(EmptyAlternative&&) = default;
-	constexpr EmptyAlternative& operator=(const EmptyAlternative&) = default;
-	constexpr EmptyAlternative& operator=(EmptyAlternative&&) = default;
-	constexpr EmptyAlternative(valueless_tag_t) {}
-};
+struct EmptyAlternative {};
 
 enum class MemberStatus {
-	Defaulted, Deleted, Defined
+	Defaulted,
+	Deleted,
+	Defined
 };
 
 template <MemberStatus S, class T, class E>
@@ -73,11 +64,9 @@ using ResultData = std::conditional_t<
 
 using value_tag_t = std::in_place_index_t<0>;
 using error_tag_t = std::in_place_index_t<1>;
-using empty_tag_t = std::in_place_index_t<2>;
 
 inline constexpr value_tag_t value_tag = value_tag_t{};
 inline constexpr error_tag_t error_tag = error_tag_t{};
-inline constexpr empty_tag_t empty_tag = empty_tag_t{};
 
 template <class T, class E>
 struct ResultUnionImpl<MemberStatus::Defaulted, T, E> {
@@ -87,8 +76,6 @@ struct ResultUnionImpl<MemberStatus::Defaulted, T, E> {
 	constexpr ResultUnionImpl(ResultUnionImpl&&) = default;
 	constexpr ResultUnionImpl& operator=(const ResultUnionImpl&) = default;
 	constexpr ResultUnionImpl& operator=(ResultUnionImpl&&) = default;
-
-	constexpr ResultUnionImpl(empty_tag_t): empty() {}
 
 	template <class ... Args>
 	constexpr ResultUnionImpl(value_tag_t, Args&& ... args):
@@ -119,7 +106,6 @@ struct ResultUnionImpl<MemberStatus::Defaulted, T, E> {
 	}
 
 	union {
-		EmptyAlternative empty = EmptyAlternative();
 		std::conditional_t<is_cv_void_v<T>, EmptyAlternative, T> value;
 		E error;
 	};
@@ -135,8 +121,6 @@ struct ResultUnionImpl<MemberStatus::Deleted, T, E> {
 
 	constexpr ResultUnionImpl& operator=(const ResultUnionImpl&) = default;
 	constexpr ResultUnionImpl& operator=(ResultUnionImpl&&) = default;
-
-	constexpr ResultUnionImpl(empty_tag_t): empty() {}
 
 	~ResultUnionImpl() = delete;	
 
@@ -155,21 +139,20 @@ struct ResultUnionImpl<MemberStatus::Deleted, T, E> {
 	}
 
 	template <class ... Args>
-	constexpr ResultUnionImpl(std::in_place_index_t<I>, Args&& ... args):
+	constexpr ResultUnionImpl(error_tag_t, Args&& ... args):
 		error(std::forward<Args>(args)...)
 	{
 		
 	}
 
 	template <class U, class ... Args>
-	constexpr ResultUnionImpl(std::in_place_index_t<I>, std::initializer_list<U> ilist, Args&& ... args):
+	constexpr ResultUnionImpl(error_tag_t, std::initializer_list<U> ilist, Args&& ... args):
 		error(ilist, std::forward<Args>(args)...)
 	{
 		
 	}
 
 	union {
-		EmptyAlternative empty = EmptyAlternative();
 		std::conditional_t<is_cv_void_v<T>, EmptyAlternative, T> value;
 		E error;
 	};
@@ -185,8 +168,6 @@ struct ResultUnionImpl<MemberStatus::Defined, T, E> {
 
 	constexpr ResultUnionImpl& operator=(const ResultUnionImpl&) = default;
 	constexpr ResultUnionImpl& operator=(ResultUnionImpl&&) = default;
-
-	constexpr ResultUnionImpl(empty_tag_t): empty() {}
 
 	~ResultUnionImpl() {}
 
@@ -205,21 +186,20 @@ struct ResultUnionImpl<MemberStatus::Defined, T, E> {
 	}
 
 	template <class ... Args>
-	constexpr ResultUnionImpl(std::in_place_index_t<I>, Args&& ... args):
+	constexpr ResultUnionImpl(error_tag_t, Args&& ... args):
 		error(std::forward<Args>(args)...)
 	{
 		
 	}
 
 	template <class U, class ... Args>
-	constexpr ResultUnionImpl(std::in_place_index_t<I>, std::initializer_list<U> ilist, Args&& ... args):
+	constexpr ResultUnionImpl(error_tag_t, std::initializer_list<U> ilist, Args&& ... args):
 		error(ilist, std::forward<Args>(args)...)
 	{
 		
 	}
 
 	union {
-		EmptyAlternative empty = EmptyAlternative();
 		std::conditional_t<is_cv_void_v<T>, EmptyAlternative, T> value;
 		E error;
 	};
@@ -231,17 +211,33 @@ struct ResultBaseMethods {
 	constexpr ResultBaseMethods() = default;
 
 	template <class ... Args>
-	constexpr ResultBaseMethods(bool has_val, Args&& ... args):
-		data_(std::forward<Args>(args)...),
-		has_value_(has_val)
+	constexpr ResultBaseMethods(value_tag_t, Args&& ... args):
+		data_(value_tag, std::forward<Args>(args)...),
+		has_value_(true)
 	{
 		
 	}
 
 	template <class T, class ... Args>
-	constexpr ResultBaseMethods(bool has_val, std::initializer_list<T> ilist, Args&& ... args):
-		data_(ilist, std::forward<Args>(args)...),
-		has_value_(has_val)
+	constexpr ResultBaseMethods(value_tag_t, std::initializer_list<T> ilist, Args&& ... args):
+		data_(value_tag, ilist, std::forward<Args>(args)...),
+		has_value_(true)
+	{
+		
+	}
+
+	template <class ... Args>
+	constexpr ResultBaseMethods(error_tag_t, Args&& ... args):
+		data_(error_tag, std::forward<Args>(args)...),
+		has_value_(false)
+	{
+		
+	}
+
+	template <class T, class ... Args>
+	constexpr ResultBaseMethods(error_tag_t, std::initializer_list<T> ilist, Args&& ... args):
+		data_(error_tag, ilist, std::forward<Args>(args)...),
+		has_value_(false)
 	{
 		
 	}
@@ -257,13 +253,13 @@ struct ResultBaseMethods {
 
 	constexpr void destruct_value() noexcept {
 		if constexpr(!is_cv_void_v<T> && !std::is_trivially_destructible_v<T>) {
-			std::destroy_at(&data_.value);
+			std::destroy_at(std::addressof(data_.value));
 		}
 	}
 
 	constexpr void destruct_error() noexcept {
 		if constexpr(!std::is_trivially_destructible_v<E>) {
-			std::destroy_at(&data_.error);
+			std::destroy_at(std::addressof(data_.error));
 		}
 	}
 
@@ -1038,12 +1034,19 @@ private:
 
 } /* namespace detail */
 
+using in_place_t = std::in_place_t;
+inline constexpr in_place_t in_place = std::in_place;
+
+struct in_place_error_t{};
+inline constexpr in_place_error_t in_place_error = in_place_error_t{};
+
 
 template <class E>
 struct Error {
 private:
 	using detail::remove_cvref_t;
 public:
+	using value_type = E;
 	Error() = delete;
 	Error(const Error&) = default;
 	Error(Error&&) = default;
@@ -1052,7 +1055,7 @@ public:
 		class Err,
 		std::enable_if_t<
 			std::is_constructible_v<E, Err>
-			&& !std::is_same_v<std::decay_t<Err>, std::in_place_t>
+			&& !std::is_same_v<std::decay_t<Err>, in_place_t>
 			&& !std::is_same_v<std::decay_t<Err>, Error>,
 			bool
 		> = false
@@ -1067,7 +1070,7 @@ public:
 		class ... Args,
 		std::enable_if_t<std::is_constructible_v<E, Args...>, bool> = false
 	>
-	constexpr explicit Error(std::in_place_t, Args&& ... args) noexcept(
+	constexpr explicit Error(in_place_t, Args&& ... args) noexcept(
 		std::is_nothrow_constructible_v<E, Args...>
 	):
 		error_(std::forward<Args>(args)...)
@@ -1080,7 +1083,7 @@ public:
 		class ... Args,
 		std::enable_if_t<std::is_constructible_v<E, std::initializer_list<U>, Args...>, bool> = false
 	>
-	constexpr explicit Error(std::in_place_t, std::initializer_list<U> ilist, Args&& ... args) noexcept(
+	constexpr explicit Error(in_place_t, std::initializer_list<U> ilist, Args&& ... args) noexcept(
 		std::is_nothrow_constructible_v<E, std::initializer_list<U>, Args...>
 	):
 		error_(ilist, std::forward<Args>(args)...)
@@ -1222,6 +1225,9 @@ private:
 };
 
 template <class E>
+explicit Error(E&&) -> Error<std::decay_t<E>>;
+
+template <class E>
 constexpr void swap(Error<E>& lhs, Error<E>& rhs)
 	noexcept(noexcept(lhs.swap(rhs)))
 {
@@ -1242,13 +1248,124 @@ friend constexpr bool operator!=(const Error<E1>& lhs, const Error<E2>& rhs)
 	return lhs.value() != rhs.value();
 }
 
-struct ErrorType {};
+namespace detail {
+
+template <class E>
+struct is_error_type: std::false_type { };
+
+template <class E>
+struct is_error_type<Error<E>>: std::true_type { };
+
+template <class E>
+struct error_value_type {};
+
+template <class E>
+struct error_value_type<Error<E>> {
+	using type = e;
+};
+
+template <class E>
+using type = typename error_value_type<E>::type;
+
+} /* namespace detail */
+
+template <class E>
+class BadResultAccess;
+
+template <>
+class BadResultAccess<void>: std::exception {
+public:
+	BadResultAccess() = default;
+
+	virtual const char* what() const noexcept override {
+		return "bad result access";
+	}
+
+};
+
+template <class E, bool = (std::is_copy_constructible_v<E> || std::is_move_constructible_v<E>)>
+class BadResultAccessBase;
+
+template <class E>
+class BadResultAccessBase<E, false>: BadResultAccess<void> {
+	BadResultAccess() = default;
+};
+
+template <class E>
+class BadResultAccessBase<E, true>: BadResultAccess<void> {
+	
+	template <
+		class Err,
+		std::enable_if_t<
+			!std::is_same_v<std::decay_t<Err>, BadResultAccess>
+			&& std::is_constructible_v<E, Err&&>
+		>
+	>
+	explicit constexpr BadResultAccess(Err&& err):
+		BadResultAccess<void>(),
+		error_(std::forward<Err>(err))
+	{
+		
+	}
+
+	constexpr E& error() & {
+		return error_;
+	}
+
+	constexpr const E& error() const& {
+		return error_;
+	}
+
+	constexpr E&& error() && {
+		return std::move(error_);
+	}
+
+	constexpr const E&& error() const&& {
+		return std::move(error_);
+	}
+
+private:
+	E error_;
+};
+
+template <class E>
+class BadResultAccess: BadResultAccessBase<E> {
+
+	BadResultAccess() = default;
+
+	template <
+		class Err,
+		std::enable_if_t<
+			!std::is_same_v<std::decay_t<Err>, BadResultAccess>
+			&& std::is_constructible_v<E, Err&&>
+		>
+	>
+	explicit constexpr BadResultAccess(Err&& err):
+		BadResultAccessBase(std::forward<Err>(err))
+	{
+		
+	}
+
+};
+
+template <class T, class E>
+struct Result;
 
 template <class T, class E>
 struct Result {
 private:
 	using data_type = result_data_type<T, E>;
+
 public:
+
+	using value_type = T;
+	using error_type = E;
+
+	static_assert(
+		!detail::is_error_type<T>::value,
+		"Result<Error<T>, E> is not permitted."
+	);
+
 	Result() = default;
 	Result(const Result&) = default;
 	Result(Result&&) = default;
@@ -1258,33 +1375,19 @@ public:
 		class G,
 		std::enable_if_t<
 			!std::conjunction_v<
-				std::disjunction<
-					std::conjunction<
-						detail::is_cv_void<T>,
-						detail::is_cv_void<U>
-					>,
-					std::is_convertible<const U&, T>
-				>,
-				std::is_convertible<const G&, E>,
+				std::is_convertible<const U&, T>,
+				std::is_convertible<const G&, E>
 			>
 			&& std::conjunction_v<
-				std::disjunction<
-					std::conjunction<
-						detail::is_cv_void<T>,
-						detail::is_cv_void<U>
-					>,
-					std::conjunction<
-						std::is_constructible_v<T, const U&>,
-						std::negation<std::is_constructible<T, Result<U, G>&>>,
-						std::negation<std::is_constructible<T, Result<U, G>&&>>,
-						std::negation<std::is_constructible<T, const Result<U, G>&>>,
-						std::negation<std::is_constructible<T, const Result<U, G>&&>>,
-						std::negation<std::is_convertible<Result<U, G>&, T>>,
-						std::negation<std::is_convertible<Result<U, G>&&, T>>,
-						std::negation<std::is_convertible<const Result<U, G>&, T>>,
-						std::negation<std::is_convertible<const Result<U, G>&&, T>>
-					>
-				>,
+				std::is_constructible<T, const U&>,
+				std::negation<std::is_constructible<T, Result<U, G>&>>,
+				std::negation<std::is_constructible<T, Result<U, G>&&>>,
+				std::negation<std::is_constructible<T, const Result<U, G>&>>,
+				std::negation<std::is_constructible<T, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, T>>,
+				std::negation<std::is_convertible<Result<U, G>&&, T>>,
+				std::negation<std::is_convertible<const Result<U, G>&, T>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, T>>,
 				std::is_constructible<E, const G&>,
 				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
 				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
@@ -1304,13 +1407,9 @@ public:
 	):
 		data_([&]() -> data_type {
 			if(other.has_value()) {
-				if constexpr(detail::is_cv_void_v<T>) {
-					return data_type(true, value_tag);
-				} else {
-					return data_type(true, value_tag, other.value());
-				}
+				return data_type(value_tag, other.val());
 			} else {
-				return data_type(false, error_tag, other.error());
+				return data_type(error_tag, other.err());
 			}
 		}())
 	{
@@ -1322,33 +1421,19 @@ public:
 		class G,
 		std::enable_if_t<
 			std::conjunction_v<
-				std::disjunction<
-					std::conjunction<
-						detail::is_cv_void<T>,
-						detail::is_cv_void<U>
-					>,
-					std::is_convertible<const U&, T>
-				>,
-				std::is_convertible<const G&, E>,
+				std::is_convertible<const U&, T>,
+				std::is_convertible<const G&, E>
 			>
 			&& std::conjunction_v<
-				std::disjunction<
-					std::conjunction<
-						detail::is_cv_void<T>,
-						detail::is_cv_void<U>
-					>,
-					std::conjunction<
-						std::is_constructible_v<T, const U&>,
-						std::negation<std::is_constructible<T, Result<U, G>&>>,
-						std::negation<std::is_constructible<T, Result<U, G>&&>>,
-						std::negation<std::is_constructible<T, const Result<U, G>&>>,
-						std::negation<std::is_constructible<T, const Result<U, G>&&>>,
-						std::negation<std::is_convertible<Result<U, G>&, T>>,
-						std::negation<std::is_convertible<Result<U, G>&&, T>>,
-						std::negation<std::is_convertible<const Result<U, G>&, T>>,
-						std::negation<std::is_convertible<const Result<U, G>&&, T>>
-					>
-				>,
+				std::is_constructible<T, const U&>,
+				std::negation<std::is_constructible<T, Result<U, G>&>>,
+				std::negation<std::is_constructible<T, Result<U, G>&&>>,
+				std::negation<std::is_constructible<T, const Result<U, G>&>>,
+				std::negation<std::is_constructible<T, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, T>>,
+				std::negation<std::is_convertible<Result<U, G>&&, T>>,
+				std::negation<std::is_convertible<const Result<U, G>&, T>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, T>>,
 				std::is_constructible<E, const G&>,
 				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
 				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
@@ -1368,13 +1453,9 @@ public:
 	):
 		data_([&]() -> data_type {
 			if(other.has_value()) {
-				if constexpr(detail::is_cv_void_v<T>) {
-					return data_type(true, value_tag);
-				} else {
-					return data_type(true, value_tag, other.value());
-				}
+				return data_type(value_tag, other.val());
 			} else {
-				return data_type(false, error_tag, other.error());
+				return data_type(error_tag, other.err());
 			}
 		}())
 	{
@@ -1386,33 +1467,19 @@ public:
 		class G,
 		std::enable_if_t<
 			!std::conjunction_v<
-				std::disjunction<
-					std::conjunction<
-						detail::is_cv_void<T>,
-						detail::is_cv_void<U>
-					>,
-					std::is_convertible<U&&, T>
-				>,
-				std::is_convertible<G&&, E>,
+				std::is_convertible<U&&, T>,
+				std::is_convertible<G&&, E>
 			>
 			&& std::conjunction_v<
-				std::disjunction<
-					std::conjunction<
-						detail::is_cv_void<T>,
-						detail::is_cv_void<U>
-					>,
-					std::conjunction<
-						std::is_constructible<T, U&&>,
-						std::negation<std::is_constructible<T, Result<U, G>&>>,
-						std::negation<std::is_constructible<T, Result<U, G>&&>>,
-						std::negation<std::is_constructible<T, const Result<U, G>&>>,
-						std::negation<std::is_constructible<T, const Result<U, G>&&>>,
-						std::negation<std::is_convertible<Result<U, G>&, T>>,
-						std::negation<std::is_convertible<Result<U, G>&&, T>>,
-						std::negation<std::is_convertible<const Result<U, G>&, T>>,
-						std::negation<std::is_convertible<const Result<U, G>&&, T>>
-					>
-				>,
+				std::is_constructible<T, U&&>,
+				std::negation<std::is_constructible<T, Result<U, G>&>>,
+				std::negation<std::is_constructible<T, Result<U, G>&&>>,
+				std::negation<std::is_constructible<T, const Result<U, G>&>>,
+				std::negation<std::is_constructible<T, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, T>>,
+				std::negation<std::is_convertible<Result<U, G>&&, T>>,
+				std::negation<std::is_convertible<const Result<U, G>&, T>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, T>>,
 				std::is_constructible<E, G&&>,
 				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
 				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
@@ -1432,13 +1499,9 @@ public:
 	):
 		data_([&]() -> data_type {
 			if(other.has_value()) {
-				if constexpr(detail::is_cv_void_v<T>) {
-					return data_type(true, value_tag);
-				} else {
-					return data_type(true, value_tag, std::move(other.value()));
-				}
+				return data_type(value_tag, std::move(other.val()));
 			} else {
-				return data_type(false, error_tag, std::move(other.error()));
+				return data_type(error_tag, std::move(other.err()));
 			}
 		}())
 	{
@@ -1450,33 +1513,19 @@ public:
 		class G,
 		std::enable_if_t<
 			std::conjunction_v<
-				std::disjunction<
-					std::conjunction<
-						detail::is_cv_void<T>,
-						detail::is_cv_void<U>
-					>,
-					std::is_convertible<U&&, T>
-				>,
-				std::is_convertible<G&&, E>,
+				std::is_convertible<U&&, T>,
+				std::is_convertible<G&&, E>
 			>
 			&& std::conjunction_v<
-				std::disjunction<
-					std::conjunction<
-						detail::is_cv_void<T>,
-						detail::is_cv_void<U>
-					>,
-					std::conjunction<
-						std::is_constructible<T, U&&>,
-						std::negation<std::is_constructible<T, Result<U, G>&>>,
-						std::negation<std::is_constructible<T, Result<U, G>&&>>,
-						std::negation<std::is_constructible<T, const Result<U, G>&>>,
-						std::negation<std::is_constructible<T, const Result<U, G>&&>>,
-						std::negation<std::is_convertible<Result<U, G>&, T>>,
-						std::negation<std::is_convertible<Result<U, G>&&, T>>,
-						std::negation<std::is_convertible<const Result<U, G>&, T>>,
-						std::negation<std::is_convertible<const Result<U, G>&&, T>>
-					>
-				>,
+				std::is_constructible<T, U&&>,
+				std::negation<std::is_constructible<T, Result<U, G>&>>,
+				std::negation<std::is_constructible<T, Result<U, G>&&>>,
+				std::negation<std::is_constructible<T, const Result<U, G>&>>,
+				std::negation<std::is_constructible<T, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, T>>,
+				std::negation<std::is_convertible<Result<U, G>&&, T>>,
+				std::negation<std::is_convertible<const Result<U, G>&, T>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, T>>,
 				std::is_constructible<E, G&&>,
 				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
 				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
@@ -1496,13 +1545,9 @@ public:
 	):
 		data_([&]() -> data_type {
 			if(other.has_value()) {
-				if constexpr(detail::is_cv_void_v<T>) {
-					return data_type(true, value_tag);
-				} else {
-					return data_type(true, value_tag, std::move(other.value()));
-				}
+				return data_type(value_tag, std::move(other.val()));
 			} else {
-				return data_type(false, error_tag, std::move(other.error()));
+				return data_type(error_tag, std::move(other.err()));
 			}
 		}())
 	{
@@ -1513,10 +1558,9 @@ public:
 		class U = T,
 		std::enable_if_t<
 			std::conjunction_v<
-				std::negation<detail::is_cv_void<T>>,
 				std::negation<std::is_convertible<U&&, T>>,
 				std::constructible<T, U&&>,
-				std::negation<std::is_same<std::decay_t<U>, std::in_place_t>>,
+				std::negation<std::is_same<std::decay_t<U>, in_place_t>>,
 				std::negation<std::is_same<std::decay_t<U>, Result>>,
 				std::negation<std::is_same<std::decay_t<U>, Error<E>>>
 			>,
@@ -1524,7 +1568,7 @@ public:
 		> = false
 	>
 	constexpr explicit Result(U&& v) noexcept(std::is_nothrow_constructible_v<T, U&&>):
-		data_(true, value_tag, std::forward<U>(v))
+		data_(value_tag, std::forward<U>(v))
 	{
 			
 	}
@@ -1533,10 +1577,9 @@ public:
 		class U = T,
 		std::enable_if_t<
 			std::conjunction_v<
-				std::negation<detail::is_cv_void<T>>,
 				std::is_convertible<U&&, T>,
 				std::constructible<T, U&&>,
-				std::negation<std::is_same<std::decay_t<U>, std::in_place_t>>,
+				std::negation<std::is_same<std::decay_t<U>, in_place_t>>,
 				std::negation<std::is_same<std::decay_t<U>, Result>>,
 				std::negation<std::is_same<std::decay_t<U>, Error<E>>>
 			>,
@@ -1544,7 +1587,7 @@ public:
 		> = false
 	>
 	constexpr Result(U&& v) noexcept(std::is_nothrow_constructible_v<T, U&&>):
-		data_(true, value_tag, std::forward<U>(v))
+		data_(value_tag, std::forward<U>(v))
 	{
 			
 	}
@@ -1560,7 +1603,7 @@ public:
 		> = false
 	>
 	constexpr Result(const Error<G>& v) noexcept(std::is_nothrow_constructible_v<E, const G&>):
-		data_(true, error_tag, v.value())
+		data_(error_tag, v.value())
 	{
 			
 	}
@@ -1576,7 +1619,7 @@ public:
 		> = false
 	>
 	constexpr explicit Result(const Error<G>& v) noexcept(std::is_nothrow_constructible_v<E, const G&>):
-		data_(true, error_tag, v.value())
+		data_(error_tag, v.value())
 	{
 			
 	}
@@ -1592,7 +1635,7 @@ public:
 		> = false
 	>
 	constexpr Result(Error<G>&& v) noexcept(std::is_nothrow_constructible_v<E, G&>):
-		data_(false, error_tag, std::move(v.value()))
+		data_(error_tag, std::move(v.value()))
 	{
 			
 	}
@@ -1608,7 +1651,7 @@ public:
 		> = false
 	>
 	constexpr explicit Result(Error<G>&& v) noexcept(std::is_nothrow_constructible_v<E, G&&>):
-		data_(false, error_tag, std::move(v.value()))
+		data_(error_tag, std::move(v.value()))
 	{
 			
 	}
@@ -1616,16 +1659,12 @@ public:
 	template <
 		class Args ...,
 		std::enable_if_t<
-			std::conditional_t<
-				detail::is_cv_void_v<T>,
-				std::bool_constant<(sizeof...(Args) == 0)>,
-				std::is_constructible<T, Args&&...>
-			>::value
+			std::is_constructible_v<T, Args&&...>,
 			bool
 		> = false
 	>
-	constexpr explicit Result(std::in_place_t, Args&& ... args) noexcept(std::is_nothrow_constructible_v<E, G&&>):
-		data_(true, value_tag, std::forward<Args>(args)...)
+	constexpr explicit Result(in_place_t, Args&& ... args) noexcept(std::is_nothrow_constructible_v<E, G&&>):
+		data_(value_tag, std::forward<Args>(args)...)
 	{
 			
 	}
@@ -1634,26 +1673,24 @@ public:
 		class U,
 		class Args ...,
 		std::enable_if_t<
-			!detail::is_cv_void_v<T>
-			std::is_constructible<T, std::initializer_list<U>&, Args&&...>
-			>::value
+			std::is_constructible_v<T, std::initializer_list<U>&, Args&&...>,
 			bool
 		> = false
 	>
-	constexpr explicit Result(std::in_place_t, std::initializer_list<U> ilist, Args&& ... args) noexcept(
+	constexpr explicit Result(in_place_t, std::initializer_list<U> ilist, Args&& ... args) noexcept(
 		std::is_nothrow_constructible_v<E, G&&>
 	):
-		data_(true, value_tag, ilist, std::forward<Args>(args)...)
+		data_(value_tag, ilist, std::forward<Args>(args)...)
 	{
 			
 	}
 
 	template <
 		class Args ...,
-		std::enable_if_t<std::is_constructible<E, Args&&...>, bool> = false
+		std::enable_if_t<std::is_constructible_v<E, Args&&...>, bool> = false
 	>
-	constexpr explicit Result(ErrorType, Args&& ... args) noexcept(std::is_nothrow_constructible_v<E, G&&>):
-		data_(false, value_tag, std::forward<Args>(args)...)
+	constexpr explicit Result(in_place_error_t, Args&& ... args) noexcept(std::is_nothrow_constructible_v<E, G&&>):
+		data_(error_tag, std::forward<Args>(args)...)
 	{
 			
 	}
@@ -1662,113 +1699,2370 @@ public:
 		class U,
 		class Args ...,
 		std::enable_if_t<
-			!detail::is_cv_void_v<T>
-			std::is_constructible<T, std::initializer_list<U>&, Args&&...>
-			>::value
+			std::is_constructible_v<E, std::initializer_list<U>&, Args&&...>,
 			bool
 		> = false
 	>
-	constexpr explicit Result(ErrorType, std::initializer_list<U> ilist, Args&& ... args) noexcept(
+	constexpr explicit Result(in_place_error_t, std::initializer_list<U> ilist, Args&& ... args) noexcept(
 		std::is_nothrow_constructible_v<E, G&&>
 	):
-		data_(false, error_tag, ilist, std::forward<Args>(args)...)
+		data_(error_tag, ilist, std::forward<Args>(args)...)
 	{
 			
 	}
 
-	Result& operator=(const Result&) = default;
-	Result& operator=(Result&&) = default;
-
+	constexpr Result& operator=(const Result&) = default;
+	constexpr Result& operator=(Result&&) = default;
 
 	template <
 		class U,
 		std::enable_if_t<
 			std::conjunction_v<
-				std::negation<detail::is_cv_void<T>>,
-    				std::negation<std::is_same<Result, remove_cvref_t<U>,
+    				std::negation<std::is_same<Result, remove_cvref_t<U>>>,
     				std::negation<std::conjunction<
 					std::is_scalar<T>,
 					std::is_same<T, std::decay_t<U>>
 				>>,
-    				std::is_constructible<T, U&&> ,
+    				std::is_constructible<T, U&&>,
     				std::is_assignable<T&, U&&>,
-    				std::is_nothrow_move_constructible<E>
+				std::disjunction<
+					std::is_nothrow_constructible_v<T, U&&>,
+					std::is_nothrow_move_constructible<E>
+				>
 			>,
 			bool
 		> = false
 	>
-	Result& operator=(U&& v) noexcept(
+	constexpr Result& operator=(U&& v) noexcept(
 		std::is_nothrow_assignable_v<T&, U&&>
 		&& std::is_nothrow_constructible_v<T, U&&>
 	)
 	{
 		if(this->has_value()) {
-			this->value() = std::forward<U>(v);
+			this->val() = std::forward<U>(v);
 			return *this;
 		}
 		if constexpr(std::is_nothrow_constructible_v<T, U&&>) {
 			this->destruct_error();
-			new (std::addressof(this->value())) T(std::forward<U>(v));
+			new (std::addressof(this->val())) T(std::forward<U>(v));
 		} else {
 			static_assert(std::is_nothrow_move_constructible_v<E>);
-			E tmp(std::move(this->error()));
+			E tmp(std::move(this->err()));
 			this->destruct_error();
 			auto guard = detail::make_manual_scope_guard([&](){
-				new (std::addressof(this->error())) E(std::move(tmp));
+				new (std::addressof(this->err())) E(std::move(tmp));
 			});
-			new (std::addressof(this->value())) T(std::forward<U>(v));
+			new (std::addressof(this->val())) T(std::forward<U>(v));
 			guard.active = false;
 		}
-		has_value() = true;
+		data_.has_value() = true;
 		return *this;
 	}
 
 	template <
-		class G,
+		class Err,
 		std::enable_if_t<
 			std::conjunction_v<
-				std::negation<detail::is_cv_void<T>>,
-    				std::negation<std::is_same<Result, remove_cvref_t<U>,
-    				std::negation<std::conjunction<
-					std::is_scalar<T>,
-					std::is_same<T, std::decay_t<U>>
-				>>,
-    				std::is_constructible<T, U&&> ,
-    				std::is_assignable<T&, U&&>,
-    				std::is_nothrow_move_constructible<E>
+    				std::is_constructible<E, const G&>,
+    				std::is_assignable<E&, const G&>,
+				std::disjunction<
+					std::is_nothrow_constructible_v<E, const G&>,
+					std::is_nothrow_move_constructible_v<T>,
+				>
 			>,
 			bool
 		> = false
 	>
-	Result& operator=(const Error<G>& v) noexcept(
+	constexpr Result& operator=(const Error<G>& e) noexcept(
 		std::is_nothrow_assignable_v<E&, const G&>
 		&& std::is_nothrow_constructible_v<E, const G&>
 	)
 	{
-		if(this->has_value()) {
-			this->value() = std::forward<U>(v);
+		if(!this->has_value()) {
+			this->err() = e.value();
 			return *this;
 		}
-		if constexpr(std::is_nothrow_constructible_v<T, U&&>) {
-			this->destruct_error();
-			new (std::addressof(this->value())) T(std::forward<U>(v));
+		if constexpr(std::is_nothrow_constructible_v<E, const G&>) {
+			this->destruct_value();
+			new (std::addressof(this->err())) E(e.value());
 		} else {
 			static_assert(std::is_nothrow_move_constructible_v<E>);
-			E tmp(std::move(this->error()));
+			T tmp(std::move(this->val()));
 			this->destruct_error();
 			auto guard = detail::make_manual_scope_guard([&](){
-				new (std::addressof(this->error())) E(std::move(tmp));
+				new (std::addressof(this->val())) T(std::move(tmp));
 			});
-			new (std::addressof(this->value())) T(std::forward<U>(v));
+			new (std::addressof(this->err())) E(e.value());
 			guard.active = false;
 		}
-		has_value() = true;
+		data_.has_value() = false;
 		return *this;
 	}
 
+	template <
+		class Err,
+		std::enable_if_t<
+			std::conjunction_v<
+    				std::is_constructible<E, G&&>,
+    				std::is_assignable<E&, G&&>,
+				std::disjunction<
+					std::is_nothrow_constructible_v<E, G&&>,
+					std::is_nothrow_move_constructible_v<T>,
+				>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result& operator=(Error<G>&& e) noexcept(
+		std::is_nothrow_assignable_v<E&, G&&>
+		&& std::is_nothrow_constructible_v<E, G&&>
+	) {
+		if(!this->has_value()) {
+			this->err() = std::move(e.value());
+			return *this;
+		}
+		if constexpr(std::is_nothrow_constructible_v<E, const G&>) {
+			this->destruct_value();
+			new (std::addressof(this->err())) E(std::move(e.value()));
+		} else {
+			static_assert(std::is_nothrow_move_constructible_v<E>);
+			T tmp(std::move(this->val()));
+			this->destruct_error();
+			auto guard = detail::make_manual_scope_guard([&](){
+				new (std::addressof(this->val())) T(std::move(tmp));
+			});
+			new (std::addressof(this->err())) E(std::move(e.value()));
+			guard.active = false;
+		}
+		data_.has_value() = false;
+		return *this;
+	}
+
+	template <
+		class ... Args,
+		std::enable_if_t<
+			std::conjunction<
+				std::is_constructible<T, Args&&...>,
+				std::disjunction<
+					std::is_nothrow_constructible<T, Args&&...>,
+					std::is_nothrow_move_constructible<T>,
+					std::conjunction<
+						std::is_nothrow_move_constructible<E>,
+						std::is_move_assignable<T>,
+					>
+				>
+			>,
+			bool
+		> = false
+	>
+	constexpr T& emplace(Args&& ... args) noexcept(
+		std::is_nothrow_constructible_v<T, Args&&...>
+	) {
+		if constexpr(std:is_nothrow_constructible_v<T, Args&& ...>) {
+			if(this->has_value()) {
+				this->destruct_value();
+				new (std::addressof(this->val())) T(std::forward<Args>(args)...);
+			} else {
+				this->destruct_error();
+				new (std::addressof(this->val())) T(std::forward<Args>(args)...);
+				data_.has_value() = true;
+			}
+			return this->val();
+		} else if constexpr(std:is_nothrow_move_constructible_v<T>) {
+			T tmp(std::forward<Args>(args)...);
+			if(this->has_value()) {
+				this->destruct_value();
+				new (std::addressof(this->val())) T(std::move(tmp));
+			} else {
+				this->destruct_error();
+				new (std::addressof(this->val())) T(std::move(tmp));
+				data_.has_value() = true;
+			}
+			return this->val();
+		} else {
+			static_assert(std::is_nothrow_move_constructible_v<E> && std::is_move_assignable_v<T>);
+			if(this->has_value()) {
+				this->val() = T(std::forward<Args>(args)...);
+				return this->val();
+			} else {
+				E tmp(std::move(this->err()));
+				this->destruct_error();
+				auto guard = make_manual_scope_guard([&](){
+					new (std::addressof(this->err())) E(std::move(tmp));
+				});
+				new (std::addressof(this->val())) T(std::forward<Args>(args)...);
+				guard.active = false;
+				data_.has_value() = true;
+			}
+		}
+	}
+
+	template <
+		class U,
+		class ... Args,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_constructible<T, std::initializer_list<U>&, Args&&...>,
+				std::disjunction<
+					std::is_nothrow_constructible<T, std::initializer_list<U>&, Args&&...>,
+					std::is_nothrow_move_constructible<T>,
+					std::conjunction<
+						std::is_nothrow_move_constructible<E>,
+						std::is_move_assignable<T>,
+					>
+				>
+			>,
+			bool
+		> = false
+	>
+	constexpr T& emplace(std::initializer_list<U> ilist, Args&& ... args) noexcept(
+		std::is_nothrow_constructible_v<T, std::initializer_list<U>&, Args&&...>,
+	) {
+		if constexpr(std:is_nothrow_constructible_v<T, Args&& ...>) {
+			if(this->has_value()) {
+				this->destruct_value();
+				new (std::addressof(this->val())) T(ilist, std::forward<Args>(args)...);
+			} else {
+				this->destruct_error();
+				new (std::addressof(this->val())) T(ilist, std::forward<Args>(args)...);
+				data_.has_value() = true;
+			}
+			return this->val();
+		} else if constexpr(std:is_nothrow_move_constructible_v<T>) {
+			T tmp(ilist, std::forward<Args>(args)...);
+			if(this->has_value()) {
+				this->destruct_value();
+				new (std::addressof(this->val())) T(std::move(tmp));
+			} else {
+				this->destruct_error();
+				new (std::addressof(this->val())) T(std::move(tmp));
+				data_.has_value() = true;
+			}
+			return this->val();
+		} else {
+			static_assert(std::is_nothrow_move_constructible_v<E> && std::is_move_assignable_v<T>);
+			if(this->has_value()) {
+				this->val() = T(ilist, std::forward<Args>(args)...);
+				return this->val();
+			} else {
+				E tmp(std::move(this->err()));
+				this->destruct_error();
+				auto guard = make_manual_scope_guard([&](){
+					new (std::addressof(this->err())) E(std::move(tmp));
+				});
+				new (std::addressof(this->val())) T(ilist, std::forward<Args>(args)...);
+				guard.active = false;
+				data_.has_value() = true;
+			}
+		}
+	}
+
+	template <
+		class Other = Result,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_same<Other, Result>,
+				std::is_move_constructible<T>
+				std::is_swappable<T>,
+				std::is_move_constructible<E>,
+				std::is_swappable<E>
+			>,
+			bool
+		> = false
+	>
+	constexpr void swap(Other& other) noexcept(
+		std::conjunction_v<
+			std::is_nothrow_move_constructible_v<T>,
+			std::is_nothrow_move_constructible<E>,
+			std::is_nothrow_swappable<T>,
+			std::is_nothrow_swappable<E>
+		>
+	) {
+		if(this->has_value()) {
+			if(other.has_value()) {
+				this->swap_case(other, std::true_type{}, std::true_type{});
+			} else {
+				this->swap_case(other, std::true_type{}, std::false_type{});
+			}
+		} else {
+			if(other.has_value()) {
+				this->swap_case(other, std::false_type{}, std::true_type{});
+				
+			} else {
+				this->swap_case(other, std::false_type{}, std::false_type{});
+			}
+		}
+	}
+
+	constexpr bool has_value() const {
+		return this->data_.has_value();
+	}
+
+	constexpr const T* operator->() const {
+		assert_has_value();
+		return std::addressof(this->val());
+	}
+
+	constexpr T* operator->() {
+		assert_has_value();
+		return std::addressof(this->val());
+	}
+
+	constexpr const T&& operator*() const&& {
+		assert_has_value();
+		return std::move(this->val());
+	}
+
+	constexpr const T& operator*() const& {
+		assert_has_value();
+		return this->val();
+	}
+
+	constexpr T&& operator*() && {
+		assert_has_value();
+		return std::move(this->val());
+	}
+
+	constexpr T& operator*() & {
+		assert_has_value();
+		return this->val();
+	}
+
+	constexpr const T& value() const& {
+		if(!this->has_value()) {
+			throw_bad_expected_access();
+		}
+		return base_.value();
+	}
+
+	constexpr const T&& value() const&& {
+		if(!this->has_value()) {
+			throw_bad_expected_access();
+		}
+		return std::move(base_.value());
+	}
+
+	constexpr T& value() & {
+		if(!this->has_value()) {
+			throw_bad_expected_access();
+		}
+		return base_.value();
+	}
+
+	constexpr T&& value() && {
+		if(!this->has_value()) {
+			throw_bad_expected_access();
+		}
+		return std::move(base_.value());
+	}
+
+	constexpr E&& error() && {
+		assert_not_has_value();
+		return std::move(this->err());
+	}
+
+	constexpr const E&& error() const&& {
+		assert_not_has_value();
+		return std::move(this->err());
+	}
+
+	constexpr E& error() & {
+		assert_not_has_value();
+		return this->err();
+	}
+
+	constexpr const E& error() const& {
+		assert_not_has_value();
+		return this->err();
+	}
+
+	template <class U>
+	constexpr T value_or(U&& alt) const& {
+		if(this->has_value()) {
+			return this->value();
+		}
+		return std::forward<U>(alt);
+	}
+
+	template <class U>
+	constexpr T value_or(U&& alt) && {
+		if(this->has_value()) {
+			return std::move(this->value());
+		}
+		return std::forward<U>(alt);
+	}
+
 private:
+
+	constexpr void assert_has_value() const {
+#if defined(assert) && !defined(TIM_RESULT_DISABLE_ASSERTIONS)
+		assert(this->has_value());
+#endif
+	}
+
+	constexpr void assert_not_has_value() const {
+#if defined(assert) && defined(TIM_RESULT_DISABLE_ASSERTIONS)
+		assert(not this->has_value());
+#endif
+	}
+
+	[[noreturn]]
+	void throw_bad_result_access() noexcept(false) {
+		if constexpr(std::is_move_constructible_v<E> || std::is_move_constructible_v<E>) {
+			throw BadResultAccess<E>(std::move(this->error()));
+		} else {
+			throw BadResultAccess<E>();
+		}
+	}
+	
+	constexpr void swap_case(Result& other, std::false_type, std::false_type) {
+		using std::swap;
+		swap(this->err(), other.err());
+	}
+
+	constexpr void swap_case(Result& other, std::false_type, std::true_type) {
+		other.swap_case(*this, std::true_type{}, std::false_type{});
+	}
+
+	constexpr void swap_case(Result& other, std::true_type, std::false_type) {
+		if constexpr(std::is_nothrow_move_constructible_v<E>) {
+			E tmp(std::move(other.err()));
+			other.destruct_error();
+			auto guard = make_manual_scope_guard([&](){
+				new (std::addressof(other.err())) E(std::move(tmp));
+			});
+			new (std::addressof(other.val())) T(std::move(this->val()));
+			guard.active = false;
+			other.data_.has_value() = true;
+			this->destruct_value();
+			new (std::addressof(this->err())) E(std::move(tmp));
+			this->data_.has_value() = false;
+		} else {
+			static_assert(sdd::is_nothrow_move_constructible_v<T>);
+			T tmp(std::move(this->val()));
+			this->destruct_value();
+			auto guard = make_manual_scope_guard([&](){
+				new (std::addressof(this->val())) T(std::move(tmp));
+			});
+			new (std::addressof(this->err())) E(std::move(other.err()));
+			guard.active = false;
+			this->data_.has_value() = false;
+			other.destruct_error();
+			new (std::addressof(other.val())) T(std::move(tmp));
+			other.data_.has_value() = true;
+		}
+	}
+	
+	constexpr void swap_case(Result& other, std::true_type, std::true_type) {
+		using std::swap;
+		swap(this->val(), other.val());
+	}
+	
+	constexpr void destruct_value() noexcept {
+		return data_.destruct_value();
+	}
+
+	constexpr void destruct_error() noexcept {
+		return data_.destruct_error();
+	}
+
+	constexpr void destruct() noexcept {
+		return data_.destruct();
+	}
+
 	data_type data_;
 };
+
+template <class E>
+struct Result<void, E> {
+private:
+	using data_type = result_data_type<void, E>;
+
+public:
+
+	using value_type = void;
+	using error_type = E;
+
+	Result() = default;
+	Result(const Result&) = default;
+	Result(Result&&) = default;
+
+	template <
+		class G,
+		class U,
+		std::enable_if_t<
+			!std::is_convertible_v<const G&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, const G&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	explicit constexpr Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, other.err());
+			}
+		}())
+	{
+		
+	}
+
+	template <
+		class U,
+		class G,
+		std::enable_if_t<
+			std::is_convertible<const G&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, const G&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, other.err());
+			}
+		}())
+	{
+		
+	}
+
+	template <
+		class U,
+		class G,
+		std::enable_if_t<
+			!std::is_convertible_v<G&&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, G&&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, std::move(other.err()));
+			}
+		}())
+	{
+		
+	}
+	
+	template <
+		class U,
+		class G,
+		std::enable_if_t<
+			std::is_convertible_v<G&&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, G&&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, std::move(other.err()));
+			}
+		}())
+	{
+		
+	}
+	
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_convertible<const G&, E>,
+				std::constructible<E, const G&>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(const Error<G>& v) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_(error_tag, v.value())
+	{
+			
+	}
+
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::negation<std::is_convertible<const G&, E>>,
+				std::constructible<E, const G&>
+			>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(const Error<G>& v) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_(error_tag, v.value())
+	{
+			
+	}
+
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_convertible<G&&, E>,
+				std::constructible<E, G&&>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(Error<G>&& v) noexcept(std::is_nothrow_constructible_v<E, G&>):
+		data_(error_tag, std::move(v.value()))
+	{
+			
+	}
+
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::negation<std::is_convertible<G&&, E>>,
+				std::constructible<E, G&&>
+			>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(Error<G>&& v) noexcept(std::is_nothrow_constructible_v<E, G&&>):
+		data_(error_tag, std::move(v.value()))
+	{
+			
+	}
+
+	constexpr explicit Result(in_place_t) noexcept:
+		data_(value_tag)
+	{
+			
+	}
+
+	template <
+		class Args ...,
+		std::enable_if_t<std::is_constructible_v<E, Args&&...>, bool> = false
+	>
+	constexpr explicit Result(in_place_error_t, Args&& ... args) noexcept(std::is_nothrow_constructible_v<E, G&&>):
+		data_(error_tag, std::forward<Args>(args)...)
+	{
+			
+	}
+
+	template <
+		class U,
+		class Args ...,
+		std::enable_if_t<
+			std::is_constructible_v<E, std::initializer_list<U>&, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(in_place_error_t, std::initializer_list<U> ilist, Args&& ... args) noexcept(
+		std::is_nothrow_constructible_v<E, G&&>
+	):
+		data_(error_tag, ilist, std::forward<Args>(args)...)
+	{
+			
+	}
+
+	constexpr Result& operator=(const Result&) = default;
+	constexpr Result& operator=(Result&&) = default;
+
+	template <
+		class Err,
+		std::enable_if_t<
+			std::conjunction_v<
+    				std::is_constructible<E, const G&>,
+    				std::is_assignable<E&, const G&>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result& operator=(const Error<G>& e) noexcept(
+		std::is_nothrow_assignable_v<E&, const G&>
+		&& std::is_nothrow_constructible_v<E, const G&>
+	)
+	{
+		if(!this->has_value()) {
+			this->err() = e.value();
+			return *this;
+		}
+		new (std::addressof(this->err())) E(e.value());
+		data_.has_value() = false;
+		return *this;
+	}
+
+	template <
+		class Err,
+		std::enable_if_t<
+			std::conjunction_v<
+    				std::is_constructible<E, G&&>,
+    				std::is_assignable<E&, G&&>,
+			>,
+			bool
+		> = false
+	>
+	constexpr Result& operator=(Error<G>&& e) noexcept(
+		std::is_nothrow_assignable_v<E&, G&&>
+		&& std::is_nothrow_constructible_v<E, G&&>
+	) {
+		if(!this->has_value()) {
+			this->err() = std::move(e.value());
+			return *this;
+		}
+		new (std::addressof(this->err())) E(std::move(e.value()));
+		data_.has_value() = false;
+		return *this;
+	}
+
+	constexpr void emplace() noexcept {
+		if(this->has_value()) {
+			return;
+		}
+		this->destruct_error();
+		data_.has_value() = true;
+	}
+
+	template <
+		class Other = Result,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_same<Other, Result>,
+				std::is_move_constructible<E>,
+				std::is_swappable<E>
+			>,
+			bool
+		> = false
+	>
+	constexpr void swap(Other& other) noexcept(
+		std::conjunction_v<
+			std::is_nothrow_move_constructible<E>,
+			std::is_nothrow_swappable<E>
+		>
+	) {
+		if(this->has_value()) {
+			if(other.has_value()) {
+				return;
+			} else {
+				new (std::addressof(this->error())) E(std::move(other.error()));
+				this->data_.has_value() = false;
+				other.destruct_error();
+				other.data_.has_value() = false;
+			}
+		} else {
+			if(other.has_value()) {
+				new (std::addressof(other.error())) E(std::move(this->error()));
+				other.data_.has_value() = false;
+				this->destruct_error();
+				this->data_.has_value() = true;
+				
+			} else {
+				using std::swap;
+				swap(this->error(), other.error());
+			}
+		}
+	}
+
+	constexpr bool has_value() const {
+		return this->data_.has_value();
+	}
+
+	constexpr void value() const {
+		if(!this->has_value()) {
+			throw_bad_expected_access();
+		}
+	}
+
+	constexpr E&& error() && {
+		assert_not_has_value();
+		return std::move(this->err());
+	}
+
+	constexpr const E&& error() const&& {
+		assert_not_has_value();
+		return std::move(this->err());
+	}
+
+	constexpr E& error() & {
+		assert_not_has_value();
+		return this->err();
+	}
+
+	constexpr const E& error() const& {
+		assert_not_has_value();
+		return this->err();
+	}
+
+private:
+	constexpr void assert_has_value() const {
+#if defined(assert) && !defined(TIM_RESULT_DISABLE_ASSERTIONS)
+		assert(this->has_value());
+#endif
+	}
+
+	constexpr void assert_not_has_value() const {
+#if defined(assert) && defined(TIM_RESULT_DISABLE_ASSERTIONS)
+		assert(not this->has_value());
+#endif
+	}
+
+	[[noreturn]]
+	void throw_bad_result_access() noexcept(false) {
+		if constexpr(std::is_move_constructible_v<E> || std::is_move_constructible_v<E>) {
+			throw BadResultAccess<E>(std::move(this->error()));
+		} else {
+			throw BadResultAccess<E>();
+		}
+	}
+	
+	constexpr void destruct_value() noexcept {
+		return data_.destruct_value();
+	}
+
+	constexpr void destruct_error() noexcept {
+		return data_.destruct_error();
+	}
+
+	constexpr void destruct() noexcept {
+		return data_.destruct();
+	}
+
+	data_type data_;
+};
+
+template <class E>
+struct Result<const void, E> {
+private:
+	using data_type = result_data_type<const void, E>;
+
+public:
+
+	using value_type = const void;
+	using error_type = E;
+
+	Result() = default;
+	Result(const Result&) = default;
+	Result(Result&&) = default;
+
+	template <
+		class G,
+		class U,
+		std::enable_if_t<
+			!std::is_convertible_v<const G&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, const G&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	explicit constexpr Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, other.err());
+			}
+		}())
+	{
+		
+	}
+
+	template <
+		class U,
+		class G,
+		std::enable_if_t<
+			std::is_convertible<const G&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, const G&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, other.err());
+			}
+		}())
+	{
+		
+	}
+
+	template <
+		class U,
+		class G,
+		std::enable_if_t<
+			!std::is_convertible_v<G&&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, G&&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, std::move(other.err()));
+			}
+		}())
+	{
+		
+	}
+	
+	template <
+		class U,
+		class G,
+		std::enable_if_t<
+			std::is_convertible_v<G&&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, G&&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, std::move(other.err()));
+			}
+		}())
+	{
+		
+	}
+	
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_convertible<const G&, E>,
+				std::constructible<E, const G&>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(const Error<G>& v) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_(error_tag, v.value())
+	{
+			
+	}
+
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::negation<std::is_convertible<const G&, E>>,
+				std::constructible<E, const G&>
+			>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(const Error<G>& v) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_(error_tag, v.value())
+	{
+			
+	}
+
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_convertible<G&&, E>,
+				std::constructible<E, G&&>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(Error<G>&& v) noexcept(std::is_nothrow_constructible_v<E, G&>):
+		data_(error_tag, std::move(v.value()))
+	{
+			
+	}
+
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::negation<std::is_convertible<G&&, E>>,
+				std::constructible<E, G&&>
+			>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(Error<G>&& v) noexcept(std::is_nothrow_constructible_v<E, G&&>):
+		data_(error_tag, std::move(v.value()))
+	{
+			
+	}
+
+	constexpr explicit Result(in_place_t) noexcept:
+		data_(value_tag)
+	{
+			
+	}
+
+	template <
+		class Args ...,
+		std::enable_if_t<std::is_constructible_v<E, Args&&...>, bool> = false
+	>
+	constexpr explicit Result(in_place_error_t, Args&& ... args) noexcept(std::is_nothrow_constructible_v<E, G&&>):
+		data_(error_tag, std::forward<Args>(args)...)
+	{
+			
+	}
+
+	template <
+		class U,
+		class Args ...,
+		std::enable_if_t<
+			std::is_constructible_v<E, std::initializer_list<U>&, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(in_place_error_t, std::initializer_list<U> ilist, Args&& ... args) noexcept(
+		std::is_nothrow_constructible_v<E, G&&>
+	):
+		data_(error_tag, ilist, std::forward<Args>(args)...)
+	{
+			
+	}
+
+	constexpr Result& operator=(const Result&) = default;
+	constexpr Result& operator=(Result&&) = default;
+
+	template <
+		class Err,
+		std::enable_if_t<
+			std::conjunction_v<
+    				std::is_constructible<E, const G&>,
+    				std::is_assignable<E&, const G&>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result& operator=(const Error<G>& e) noexcept(
+		std::is_nothrow_assignable_v<E&, const G&>
+		&& std::is_nothrow_constructible_v<E, const G&>
+	)
+	{
+		if(!this->has_value()) {
+			this->err() = e.value();
+			return *this;
+		}
+		new (std::addressof(this->err())) E(e.value());
+		data_.has_value() = false;
+		return *this;
+	}
+
+	template <
+		class Err,
+		std::enable_if_t<
+			std::conjunction_v<
+    				std::is_constructible<E, G&&>,
+    				std::is_assignable<E&, G&&>,
+			>,
+			bool
+		> = false
+	>
+	constexpr Result& operator=(Error<G>&& e) noexcept(
+		std::is_nothrow_assignable_v<E&, G&&>
+		&& std::is_nothrow_constructible_v<E, G&&>
+	) {
+		if(!this->has_value()) {
+			this->err() = std::move(e.value());
+			return *this;
+		}
+		new (std::addressof(this->err())) E(std::move(e.value()));
+		data_.has_value() = false;
+		return *this;
+	}
+
+	constexpr void emplace() noexcept {
+		if(this->has_value()) {
+			return;
+		}
+		this->destruct_error();
+		data_.has_value() = true;
+	}
+
+	template <
+		class Other = Result,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_same<Other, Result>,
+				std::is_move_constructible<E>,
+				std::is_swappable<E>
+			>,
+			bool
+		> = false
+	>
+	constexpr void swap(Other& other) noexcept(
+		std::conjunction_v<
+			std::is_nothrow_move_constructible<E>,
+			std::is_nothrow_swappable<E>
+		>
+	) {
+		if(this->has_value()) {
+			if(other.has_value()) {
+				return;
+			} else {
+				new (std::addressof(this->error())) E(std::move(other.error()));
+				this->data_.has_value() = false;
+				other.destruct_error();
+				other.data_.has_value() = false;
+			}
+		} else {
+			if(other.has_value()) {
+				new (std::addressof(other.error())) E(std::move(this->error()));
+				other.data_.has_value() = false;
+				this->destruct_error();
+				this->data_.has_value() = true;
+				
+			} else {
+				using std::swap;
+				swap(this->error(), other.error());
+			}
+		}
+	}
+
+	constexpr bool has_value() const {
+		return this->data_.has_value();
+	}
+
+	constexpr void value() const {
+		if(!this->has_value()) {
+			throw_bad_expected_access();
+		}
+	}
+
+	constexpr E&& error() && {
+		assert_not_has_value();
+		return std::move(this->err());
+	}
+
+	constexpr const E&& error() const&& {
+		assert_not_has_value();
+		return std::move(this->err());
+	}
+
+	constexpr E& error() & {
+		assert_not_has_value();
+		return this->err();
+	}
+
+	constexpr const E& error() const& {
+		assert_not_has_value();
+		return this->err();
+	}
+
+private:
+	constexpr void assert_has_value() const {
+#if defined(assert) && !defined(TIM_RESULT_DISABLE_ASSERTIONS)
+		assert(this->has_value());
+#endif
+	}
+
+	constexpr void assert_not_has_value() const {
+#if defined(assert) && defined(TIM_RESULT_DISABLE_ASSERTIONS)
+		assert(not this->has_value());
+#endif
+	}
+
+	[[noreturn]]
+	void throw_bad_result_access() noexcept(false) {
+		if constexpr(std::is_move_constructible_v<E> || std::is_move_constructible_v<E>) {
+			throw BadResultAccess<E>(std::move(this->error()));
+		} else {
+			throw BadResultAccess<E>();
+		}
+	}
+	
+	constexpr void destruct_value() noexcept {
+		return data_.destruct_value();
+	}
+
+	constexpr void destruct_error() noexcept {
+		return data_.destruct_error();
+	}
+
+	constexpr void destruct() noexcept {
+		return data_.destruct();
+	}
+
+	data_type data_;
+};
+
+template <class E>
+struct Result<volatile void, E> {
+private:
+	using data_type = result_data_type<volatile void, E>;
+
+public:
+
+	using value_type = volatile void;
+	using error_type = E;
+
+	Result() = default;
+	Result(const Result&) = default;
+	Result(Result&&) = default;
+
+	template <
+		class G,
+		class U,
+		std::enable_if_t<
+			!std::is_convertible_v<const G&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, const G&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	explicit constexpr Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, other.err());
+			}
+		}())
+	{
+		
+	}
+
+	template <
+		class U,
+		class G,
+		std::enable_if_t<
+			std::is_convertible<const G&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, const G&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, other.err());
+			}
+		}())
+	{
+		
+	}
+
+	template <
+		class U,
+		class G,
+		std::enable_if_t<
+			!std::is_convertible_v<G&&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, G&&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, std::move(other.err()));
+			}
+		}())
+	{
+		
+	}
+	
+	template <
+		class U,
+		class G,
+		std::enable_if_t<
+			std::is_convertible_v<G&&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, G&&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, std::move(other.err()));
+			}
+		}())
+	{
+		
+	}
+	
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_convertible<const G&, E>,
+				std::constructible<E, const G&>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(const Error<G>& v) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_(error_tag, v.value())
+	{
+			
+	}
+
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::negation<std::is_convertible<const G&, E>>,
+				std::constructible<E, const G&>
+			>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(const Error<G>& v) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_(error_tag, v.value())
+	{
+			
+	}
+
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_convertible<G&&, E>,
+				std::constructible<E, G&&>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(Error<G>&& v) noexcept(std::is_nothrow_constructible_v<E, G&>):
+		data_(error_tag, std::move(v.value()))
+	{
+			
+	}
+
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::negation<std::is_convertible<G&&, E>>,
+				std::constructible<E, G&&>
+			>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(Error<G>&& v) noexcept(std::is_nothrow_constructible_v<E, G&&>):
+		data_(error_tag, std::move(v.value()))
+	{
+			
+	}
+
+	constexpr explicit Result(in_place_t) noexcept:
+		data_(value_tag)
+	{
+			
+	}
+
+	template <
+		class Args ...,
+		std::enable_if_t<std::is_constructible_v<E, Args&&...>, bool> = false
+	>
+	constexpr explicit Result(in_place_error_t, Args&& ... args) noexcept(std::is_nothrow_constructible_v<E, G&&>):
+		data_(error_tag, std::forward<Args>(args)...)
+	{
+			
+	}
+
+	template <
+		class U,
+		class Args ...,
+		std::enable_if_t<
+			std::is_constructible_v<E, std::initializer_list<U>&, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(in_place_error_t, std::initializer_list<U> ilist, Args&& ... args) noexcept(
+		std::is_nothrow_constructible_v<E, G&&>
+	):
+		data_(error_tag, ilist, std::forward<Args>(args)...)
+	{
+			
+	}
+
+	constexpr Result& operator=(const Result&) = default;
+	constexpr Result& operator=(Result&&) = default;
+
+	template <
+		class Err,
+		std::enable_if_t<
+			std::conjunction_v<
+    				std::is_constructible<E, const G&>,
+    				std::is_assignable<E&, const G&>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result& operator=(const Error<G>& e) noexcept(
+		std::is_nothrow_assignable_v<E&, const G&>
+		&& std::is_nothrow_constructible_v<E, const G&>
+	)
+	{
+		if(!this->has_value()) {
+			this->err() = e.value();
+			return *this;
+		}
+		new (std::addressof(this->err())) E(e.value());
+		data_.has_value() = false;
+		return *this;
+	}
+
+	template <
+		class Err,
+		std::enable_if_t<
+			std::conjunction_v<
+    				std::is_constructible<E, G&&>,
+    				std::is_assignable<E&, G&&>,
+			>,
+			bool
+		> = false
+	>
+	constexpr Result& operator=(Error<G>&& e) noexcept(
+		std::is_nothrow_assignable_v<E&, G&&>
+		&& std::is_nothrow_constructible_v<E, G&&>
+	) {
+		if(!this->has_value()) {
+			this->err() = std::move(e.value());
+			return *this;
+		}
+		new (std::addressof(this->err())) E(std::move(e.value()));
+		data_.has_value() = false;
+		return *this;
+	}
+
+	constexpr void emplace() noexcept {
+		if(this->has_value()) {
+			return;
+		}
+		this->destruct_error();
+		data_.has_value() = true;
+	}
+
+	template <
+		class Other = Result,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_same<Other, Result>,
+				std::is_move_constructible<E>,
+				std::is_swappable<E>
+			>,
+			bool
+		> = false
+	>
+	constexpr void swap(Other& other) noexcept(
+		std::conjunction_v<
+			std::is_nothrow_move_constructible<E>,
+			std::is_nothrow_swappable<E>
+		>
+	) {
+		if(this->has_value()) {
+			if(other.has_value()) {
+				return;
+			} else {
+				new (std::addressof(this->error())) E(std::move(other.error()));
+				this->data_.has_value() = false;
+				other.destruct_error();
+				other.data_.has_value() = false;
+			}
+		} else {
+			if(other.has_value()) {
+				new (std::addressof(other.error())) E(std::move(this->error()));
+				other.data_.has_value() = false;
+				this->destruct_error();
+				this->data_.has_value() = true;
+				
+			} else {
+				using std::swap;
+				swap(this->error(), other.error());
+			}
+		}
+	}
+
+	constexpr bool has_value() const {
+		return this->data_.has_value();
+	}
+
+	constexpr void value() const {
+		if(!this->has_value()) {
+			throw_bad_expected_access();
+		}
+	}
+
+	constexpr E&& error() && {
+		assert_not_has_value();
+		return std::move(this->err());
+	}
+
+	constexpr const E&& error() const&& {
+		assert_not_has_value();
+		return std::move(this->err());
+	}
+
+	constexpr E& error() & {
+		assert_not_has_value();
+		return this->err();
+	}
+
+	constexpr const E& error() const& {
+		assert_not_has_value();
+		return this->err();
+	}
+
+private:
+	constexpr void assert_has_value() const {
+#if defined(assert) && !defined(TIM_RESULT_DISABLE_ASSERTIONS)
+		assert(this->has_value());
+#endif
+	}
+
+	constexpr void assert_not_has_value() const {
+#if defined(assert) && defined(TIM_RESULT_DISABLE_ASSERTIONS)
+		assert(not this->has_value());
+#endif
+	}
+
+	[[noreturn]]
+	void throw_bad_result_access() noexcept(false) {
+		if constexpr(std::is_move_constructible_v<E> || std::is_move_constructible_v<E>) {
+			throw BadResultAccess<E>(std::move(this->error()));
+		} else {
+			throw BadResultAccess<E>();
+		}
+	}
+	
+	constexpr void destruct_value() noexcept {
+		return data_.destruct_value();
+	}
+
+	constexpr void destruct_error() noexcept {
+		return data_.destruct_error();
+	}
+
+	constexpr void destruct() noexcept {
+		return data_.destruct();
+	}
+
+	data_type data_;
+};
+
+template <class E>
+struct Result<const volatile void, E> {
+private:
+	using data_type = result_data_type<const volatile void, E>;
+
+public:
+
+	using value_type = const volatile void;
+	using error_type = E;
+
+	Result() = default;
+	Result(const Result&) = default;
+	Result(Result&&) = default;
+
+	template <
+		class G,
+		class U,
+		std::enable_if_t<
+			!std::is_convertible_v<const G&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, const G&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	explicit constexpr Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, other.err());
+			}
+		}())
+	{
+		
+	}
+
+	template <
+		class U,
+		class G,
+		std::enable_if_t<
+			std::is_convertible<const G&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, const G&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, other.err());
+			}
+		}())
+	{
+		
+	}
+
+	template <
+		class U,
+		class G,
+		std::enable_if_t<
+			!std::is_convertible_v<G&&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, G&&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, std::move(other.err()));
+			}
+		}())
+	{
+		
+	}
+	
+	template <
+		class U,
+		class G,
+		std::enable_if_t<
+			std::is_convertible_v<G&&, E>
+			&& std::conjunction_v<
+				detail::is_cv_void<U>,
+				std::is_constructible<E, G&&>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, Result<U, G>&&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&>>,
+				std::negation<std::is_constructible<Error<E>, const Result<U, G>&&>>,
+				std::negation<std::is_convertible<Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<Result<U, G>&&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&, Error<E>>>,
+				std::negation<std::is_convertible<const Result<U, G>&&, Error<E>>>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(const Result<U, G>& other) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_([&]() -> data_type {
+			if(other.has_value()) {
+				return data_type(value_tag);
+			} else {
+				return data_type(error_tag, std::move(other.err()));
+			}
+		}())
+	{
+		
+	}
+	
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_convertible<const G&, E>,
+				std::constructible<E, const G&>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(const Error<G>& v) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_(error_tag, v.value())
+	{
+			
+	}
+
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::negation<std::is_convertible<const G&, E>>,
+				std::constructible<E, const G&>
+			>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(const Error<G>& v) noexcept(std::is_nothrow_constructible_v<E, const G&>):
+		data_(error_tag, v.value())
+	{
+			
+	}
+
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_convertible<G&&, E>,
+				std::constructible<E, G&&>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result(Error<G>&& v) noexcept(std::is_nothrow_constructible_v<E, G&>):
+		data_(error_tag, std::move(v.value()))
+	{
+			
+	}
+
+	template <
+		class G = E,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::negation<std::is_convertible<G&&, E>>,
+				std::constructible<E, G&&>
+			>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(Error<G>&& v) noexcept(std::is_nothrow_constructible_v<E, G&&>):
+		data_(error_tag, std::move(v.value()))
+	{
+			
+	}
+
+	constexpr explicit Result(in_place_t) noexcept:
+		data_(value_tag)
+	{
+			
+	}
+
+	template <
+		class Args ...,
+		std::enable_if_t<std::is_constructible_v<E, Args&&...>, bool> = false
+	>
+	constexpr explicit Result(in_place_error_t, Args&& ... args) noexcept(std::is_nothrow_constructible_v<E, G&&>):
+		data_(error_tag, std::forward<Args>(args)...)
+	{
+			
+	}
+
+	template <
+		class U,
+		class Args ...,
+		std::enable_if_t<
+			std::is_constructible_v<E, std::initializer_list<U>&, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr explicit Result(in_place_error_t, std::initializer_list<U> ilist, Args&& ... args) noexcept(
+		std::is_nothrow_constructible_v<E, G&&>
+	):
+		data_(error_tag, ilist, std::forward<Args>(args)...)
+	{
+			
+	}
+
+	constexpr Result& operator=(const Result&) = default;
+	constexpr Result& operator=(Result&&) = default;
+
+	template <
+		class Err,
+		std::enable_if_t<
+			std::conjunction_v<
+    				std::is_constructible<E, const G&>,
+    				std::is_assignable<E&, const G&>
+			>,
+			bool
+		> = false
+	>
+	constexpr Result& operator=(const Error<G>& e) noexcept(
+		std::is_nothrow_assignable_v<E&, const G&>
+		&& std::is_nothrow_constructible_v<E, const G&>
+	)
+	{
+		if(!this->has_value()) {
+			this->err() = e.value();
+			return *this;
+		}
+		new (std::addressof(this->err())) E(e.value());
+		data_.has_value() = false;
+		return *this;
+	}
+
+	template <
+		class Err,
+		std::enable_if_t<
+			std::conjunction_v<
+    				std::is_constructible<E, G&&>,
+    				std::is_assignable<E&, G&&>,
+			>,
+			bool
+		> = false
+	>
+	constexpr Result& operator=(Error<G>&& e) noexcept(
+		std::is_nothrow_assignable_v<E&, G&&>
+		&& std::is_nothrow_constructible_v<E, G&&>
+	) {
+		if(!this->has_value()) {
+			this->err() = std::move(e.value());
+			return *this;
+		}
+		new (std::addressof(this->err())) E(std::move(e.value()));
+		data_.has_value() = false;
+		return *this;
+	}
+
+	constexpr void emplace() noexcept {
+		if(this->has_value()) {
+			return;
+		}
+		this->destruct_error();
+		data_.has_value() = true;
+	}
+
+	template <
+		class Other = Result,
+		std::enable_if_t<
+			std::conjunction_v<
+				std::is_same<Other, Result>,
+				std::is_move_constructible<E>,
+				std::is_swappable<E>
+			>,
+			bool
+		> = false
+	>
+	constexpr void swap(Other& other) noexcept(
+		std::conjunction_v<
+			std::is_nothrow_move_constructible<E>,
+			std::is_nothrow_swappable<E>
+		>
+	) {
+		if(this->has_value()) {
+			if(other.has_value()) {
+				return;
+			} else {
+				new (std::addressof(this->error())) E(std::move(other.error()));
+				this->data_.has_value() = false;
+				other.destruct_error();
+				other.data_.has_value() = false;
+			}
+		} else {
+			if(other.has_value()) {
+				new (std::addressof(other.error())) E(std::move(this->error()));
+				other.data_.has_value() = false;
+				this->destruct_error();
+				this->data_.has_value() = true;
+				
+			} else {
+				using std::swap;
+				swap(this->error(), other.error());
+			}
+		}
+	}
+
+	constexpr bool has_value() const {
+		return this->data_.has_value();
+	}
+
+	constexpr void value() const {
+		if(!this->has_value()) {
+			throw_bad_expected_access();
+		}
+	}
+
+	constexpr E&& error() && {
+		assert_not_has_value();
+		return std::move(this->err());
+	}
+
+	constexpr const E&& error() const&& {
+		assert_not_has_value();
+		return std::move(this->err());
+	}
+
+	constexpr E& error() & {
+		assert_not_has_value();
+		return this->err();
+	}
+
+	constexpr const E& error() const& {
+		assert_not_has_value();
+		return this->err();
+	}
+
+private:
+	constexpr void assert_has_value() const {
+#if defined(assert) && !defined(TIM_RESULT_DISABLE_ASSERTIONS)
+		assert(this->has_value());
+#endif
+	}
+
+	constexpr void assert_not_has_value() const {
+#if defined(assert) && defined(TIM_RESULT_DISABLE_ASSERTIONS)
+		assert(not this->has_value());
+#endif
+	}
+
+	[[noreturn]]
+	void throw_bad_result_access() noexcept(false) {
+		if constexpr(std::is_move_constructible_v<E> || std::is_move_constructible_v<E>) {
+			throw BadResultAccess<E>(std::move(this->error()));
+		} else {
+			throw BadResultAccess<E>();
+		}
+	}
+	
+	constexpr void destruct_value() noexcept {
+		return data_.destruct_value();
+	}
+
+	constexpr void destruct_error() noexcept {
+		return data_.destruct_error();
+	}
+
+	constexpr void destruct() noexcept {
+		return data_.destruct();
+	}
+
+	data_type data_;
+};
+
+namespace traits {
+
+template <class R>
+struct is_result: std::false_type {};
+
+template <class T, class E>
+struct is_result<Result<T, E>>: std::true_type {};
+
+template <class R>
+inline constexpr bool is_result_v = is_result<R>::value;
+
+template <class R>
+struct is_error: std::false_type {};
+
+template <class E>
+struct is_error<Error<E>>: std::true_type {};
+
+template <class E>
+inline constexpr bool is_error_v = is_error<E>::value;
+
+namespace detail {
+
+template <class T, decltype((std::declval<T>() ? true : false)) = false>
+constexpr std::true_type is_contextually_convertible_to_bool_helper(std::in_place_type_t<T>, int) {
+	return std::true_type{};
+}
+
+template <class T>
+constexpr std::false_type is_contextually_convertible_to_bool_helper(std::in_place_type_t<T>, ...) {
+	return std::false_type{};
+}
+
+template <class T>
+struct is_contextually_convertible_to_bool:
+	decltype(tim::traits::detail::is_contextually_convertible_to_bool_helper(std::in_place_type<T>, 0))
+{
+};
+
+template <class T>
+inline constexpr is_contextually_convertible_to_bool_v
+	= is_contextually_convertible_to_bool<T>::value;
+
+
+static_assert(is_contextually_convertible_to_bool_v<bool>);
+static_assert(is_contextually_convertible_to_bool_v<int>);
+static_assert(is_contextually_convertible_to_bool_v<void*>);
+struct NotConvertibleToBool {};
+static_assert(!is_contextually_convertible_to_bool_v<NotConvertibleToBool>);
+
+} /* namespace detail */
+
+} /* namespace traits */
+
+/* --- Equality Operators --- */
+template <
+	class T1, class E1,
+	class T2, class E2,
+	class = std::enable_if_t<
+		std::conjunction_v<
+			std::disjunction<
+				std::conjunction<
+					detail::is_cv_void<T1>,
+					detail::is_cv_void<T2>
+				>,
+				traits::detail::is_contextually_convertible_to_bool<decltype(std::declval<const T1&>() == std::declval<const T2&>())>
+			>,
+			traits::detail::is_contextually_convertible_to_bool<decltype(std::declval<const E1&>() == std::declval<const E2&>())>
+		>,
+		bool = false
+	>
+constexpr bool operator==(const Result<T1, E1>& lhs, const Result<T2, E2>& rhs) {
+	if(lhs.has_value()) {
+		if(rhs.has_value()) {
+			if constexpr(!detail::is_cv_void_v<T1>) {
+				return lhs.value() == rhs.value();
+			} else {
+				return true;
+			}
+		}
+		return false;
+	} else {
+		if(!rhs.has_value()) {
+			return lhs.error() == rhs.error();
+		}
+		return false;
+	}
+}
+
+template <
+	class T1,
+	class E1,
+	class T2,
+	class = std::enable_if_t<
+		!detail::is_cv_void_v<T1>
+		&& traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<const T1&>() == std::declval<T2&&>())>
+		&& !traits::is_result_v<std:decay_t<T2>>
+		&& !traits::is_error_v<std::decay_t<T2>>
+		bool = false
+	>
+constexpr bool operator==(const Result<T1, E1>& lhs, T2&& rhs) {
+	if(lhs.has_value()) {
+		return lhs.value() == std::forward<T2>(rhs);
+	} else {
+		return false;
+	}
+}
+
+template <
+	class T1,
+	class T2,
+	class E2,
+	class = std::enable_if_t<
+		!detail::is_cv_void_v<T2>
+		&& traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<T1&&>() == std::declval<const T2&>())>
+		&& !traits::is_result_v<T1>
+		&& !traits::is_error_v<T1>
+		bool = false
+	>
+constexpr bool operator==(T1&& lhs, Result<T2, E2>&& rhs) {
+	if(lhs.has_value()) {
+		return std::forward<T1>(lhs) == rhs.value();
+	} else {
+		return false;
+	}
+}
+
+template <
+	class T1,
+	class E1,
+	class E2,
+	class = std::enable_if_t<
+		traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<const E1&>() == std::declval<const E2&>())>
+		bool = false
+	>
+constexpr bool operator==(const Result<T1, E1>& lhs, const Error<E2>& rhs) {
+	if(lhs.has_value()) {
+		return false;
+	}
+	return lhs.error() == rhs.value();
+}
+
+template <
+	class E1,
+	class T2,
+	class E2,
+	class = std::enable_if_t<
+		traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<const E1&>() == std::declval<const E2&>())>
+		bool = false
+	>
+constexpr bool operator==(const E1& lhs, const Result<T2, E2>& rhs) {
+	if(rhs.has_value()) {
+		return false;
+	}
+	return lhs.value() == rhs.error();
+}
+
+/* --- Inequality Operators --- */
+template <
+	class T1, class E1,
+	class T2, class E2,
+	class = std::enable_if_t<
+		std::conjunction_v<
+			std::disjunction<
+				std::conjunction<
+					detail::is_cv_void<T1>,
+					detail::is_cv_void<T2>
+				>,
+				traits::detail::is_contextually_convertible_to_bool<decltype(std::declval<const T1&>() != std::declval<const T2&>())>
+			>,
+			traits::detail::is_contextually_convertible_to_bool<decltype(std::declval<const E1&>() != std::declval<const E2&>())>
+		>,
+		bool = false
+	>
+constexpr bool operator!=(const Result<T1, E1>& lhs, const Result<T2, E2>& rhs) {
+	if(lhs.has_value()) {
+		if(rhs.has_value()) {
+			if constexpr(!detail::is_cv_void_v<T1>) {
+				return lhs.value() != rhs.value();
+			} else {
+				return false;
+			}
+		}
+		return true;
+	} else {
+		if(!rhs.has_value()) {
+			return lhs.error() != rhs.error();
+		}
+		return true;
+	}
+}
+
+template <
+	class T1,
+	class E1,
+	class T2,
+	class = std::enable_if_t<
+		!detail::is_cv_void_v<T1>
+		&& traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<const T1&>() != std::declval<T2&&>())>
+		&& !traits::is_result_v<std:decay_t<T2>>
+		&& !traits::is_error_v<std::decay_t<T2>>
+		bool = false
+	>
+constexpr bool operator==(const Result<T1, E1>& lhs, T2&& rhs) {
+	if(lhs.has_value()) {
+		return lhs.value() == std::forward<T2>(rhs);
+	} else {
+		return false;
+	}
+}
+
+template <
+	class T1,
+	class T2,
+	class E2,
+	class = std::enable_if_t<
+		!detail::is_cv_void_v<T2>
+		&& traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<T1&&>() == std::declval<const T2&>())>
+		&& !traits::is_result_v<T1>
+		&& !traits::is_error_v<T1>
+		bool = false
+	>
+constexpr bool operator==(T1&& lhs, const Result<T2, E2>& rhs) {
+	if(lhs.has_value()) {
+		return std::forward<T1>(lhs) == rhs.value();
+	} else {
+		return false;
+	}
+}
+
+template <
+	class T1,
+	class E1,
+	class E2,
+	class = std::enable_if_t<
+		traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<const E1&>() == std::declval<const E2&>())>
+		bool = false
+	>
+constexpr bool operator==(const Result<T1, E1>& lhs, const Error<E2>& rhs) {
+	if(lhs.has_value()) {
+		return false;
+	}
+	return lhs.error() == rhs.value();
+}
+
+template <
+	class E1,
+	class T2,
+	class E2,
+	class = std::enable_if_t<
+		traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<const E1&>() == std::declval<const E2&>())>
+		bool = false
+	>
+constexpr bool operator==(const Error<E1>& lhs, const Result<T2, E2>& rhs) {
+	if(rhs.has_value()) {
+		return false;
+	}
+	return lhs.value() == rhs.error();
+}
+
+template <
+	class T,
+	class E,
+	std::enable_if_t,
+		std::conjunction_v<
+			std::disjunction<
+				detail::is_cv_void<T>,
+				std::is_move_constructible<T>
+			>,
+			std::is_swappable<T>,
+			std::is_move_constructible<E>,
+			std::is_swappable<E>
+		>,
+		bool
+	> = false
+>
+constexpr void swap(Result<T, E>& lhs, Result<T, E>& rhs) noexcept(noexcept(lhs.swap(rhs))) {
+	return lhs.swap(rhs);
+}
 
 } /* inline namespace result */
 
