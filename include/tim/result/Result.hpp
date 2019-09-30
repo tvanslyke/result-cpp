@@ -4243,7 +4243,7 @@ constexpr bool operator==(const Result<T1, E1>& lhs, const Result<T2, E2>& rhs) 
 	if(lhs.has_value()) {
 		if(rhs.has_value()) {
 			if constexpr(!detail::is_cv_void_v<T1>) {
-				return lhs.value() == rhs.value();
+				return *lhs == *rhs;
 			} else {
 				return true;
 			}
@@ -4271,7 +4271,7 @@ template <
 >
 constexpr bool operator==(const Result<T1, E1>& lhs, T2&& rhs) {
 	if(lhs.has_value()) {
-		return lhs.value() == std::forward<T2>(rhs);
+		return *lhs == std::forward<T2>(rhs);
 	} else {
 		return false;
 	}
@@ -4289,9 +4289,9 @@ template <
 		bool
 	> = false
 >
-constexpr bool operator==(T1&& lhs, Result<T2, E2>&& rhs) {
-	if(lhs.has_value()) {
-		return std::forward<T1>(lhs) == rhs.value();
+constexpr bool operator==(T1&& lhs, const Result<T2, E2>& rhs) {
+	if(rhs.has_value()) {
+		return std::forward<T1>(lhs) == *rhs;
 	} else {
 		return false;
 	}
@@ -4322,7 +4322,7 @@ template <
 		bool
 	> = false
 >
-constexpr bool operator==(const E1& lhs, const Result<T2, E2>& rhs) {
+constexpr bool operator==(const Error<E1>& lhs, const Result<T2, E2>& rhs) {
 	if(rhs.has_value()) {
 		return false;
 	}
@@ -4343,7 +4343,7 @@ constexpr bool operator!=(const Result<T1, E1>& lhs, const Result<T2, E2>& rhs) 
 	if(lhs.has_value()) {
 		if(rhs.has_value()) {
 			if constexpr(!detail::is_cv_void_v<T1>) {
-				return lhs.value() != rhs.value();
+				return *lhs != *rhs;
 			} else {
 				return false;
 			}
@@ -4371,7 +4371,7 @@ template <
 >
 constexpr bool operator!=(const Result<T1, E1>& lhs, T2&& rhs) {
 	if(lhs.has_value()) {
-		return lhs.value() != std::forward<T2>(rhs);
+		return *lhs != std::forward<T2>(rhs);
 	} else {
 		return true;
 	}
@@ -4387,11 +4387,11 @@ template <
 		&& !traits::is_result_v<T1>
 		&& !traits::is_error_v<T1>,
 		bool
-	>
+	> = false
 >
 constexpr bool operator!=(T1&& lhs, const Result<T2, E2>& rhs) {
 	if(rhs.has_value()) {
-		return std::forward<T1>(lhs) != rhs.value();
+		return std::forward<T1>(lhs) != *rhs;
 	} else {
 		return true;
 	}

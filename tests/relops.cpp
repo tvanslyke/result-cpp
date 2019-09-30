@@ -103,6 +103,21 @@ void test_equality_basic() {
 	}
 }
 
+template <bool B, class L, class R>
+static void test_relops(const L& lhs, const R& rhs) {
+	if constexpr(B) {
+		REQUIRE(lhs == rhs);
+		REQUIRE(rhs == lhs);
+		REQUIRE(!(lhs != rhs));
+		REQUIRE(!(rhs != lhs));
+	} else {
+		REQUIRE(lhs != rhs);
+		REQUIRE(rhs != lhs);
+		REQUIRE(!(lhs == rhs));
+		REQUIRE(!(rhs == lhs));
+	}
+}
+
 TEST_CASE("Equality/Inequality", "[relops]") {
 	test_equality_basic<int, long>();
 	test_equality_basic<ComparesToMyBool, int>();
@@ -134,14 +149,18 @@ TEST_CASE("Equality/Inequality", "[relops]") {
 	
 	REQUIRE(!is_equality_comparable_v<Result<int, T>, Error<unsigned>>);
 	REQUIRE(!is_inequality_comparable_v<Result<int, T>, Error<unsigned>>);
-	
-	REQUIRE(tim::Result<void, int>(Error(0)) == Error(0));
-	REQUIRE(!(tim::Result<void, int>(Error(0)) != Error(0)));
 
-	REQUIRE(!(tim::Result<std::string, int>("test") == Error(0)));
-	REQUIRE(tim::Result<const char*, int>("test") != Error(0));
-
-	REQUIRE(tim::Result<const char*, int>(tim::in_place_error, 0) == Error(0));
-	REQUIRE(!(tim::Result<const char*, int>(tim::in_place_error, 0) != Error(0)));
+	test_relops<true>(tim::Result<void, int>(Error(0)), Error(0));
+	test_relops<false>(tim::Result<void, int>(Error(0)), Error(1));
+	test_relops<false>(tim::Result<int, int>(1), Error(1));
+	test_relops<true>(tim::Result<int, int>(1), 1);
+	test_relops<false>(tim::Result<int, int>(1), 2);
+	test_relops<false>(tim::Result<std::string, int>("test"), Error(0));
+	test_relops<false>(tim::Result<const char*, int>("test"), Error(0));
+	test_relops<true>(tim::Result<const char*, int>(tim::in_place_error, 0), Error(0));
+	test_relops<true>(tim::Result<const char*, int>(tim::in_place_error, 1), Error(0));
+	test_relops<true>(tim::Result<int, std::string>(tim::in_place_error, "test"), Error("test"));
+	test_relops<true>(tim::Result<int, std::string>(tim::in_place_error, "test"), Error("test"));
+	test_relops<false>(tim::Result<int, std::string>(tim::in_place_error, "test"), 0);
 
 }
