@@ -20,7 +20,7 @@ target_include_directories(Catch INTERFACE ${CATCH_INCLUDE_DIR})
 if(RESULT_ENABLE_TESTS)
   # Make test executable
   set(TEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/tests/main.cpp
-                   ${CMAKE_CURRENT_SOURCE_DIR}/tests/extensions.cpp
+                   #${CMAKE_CURRENT_SOURCE_DIR}/tests/extensions.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/assignment.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/emplace.cpp
                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/issues.cpp
@@ -38,6 +38,6 @@ if(RESULT_ENABLE_TESTS)
   if(MSVC)
     target_compile_options(result-tests PRIVATE /W4 /WX)
   else()
-    target_compile_options(result-tests PRIVATE -Wall -Wextra -pedantic -Werror)
+    target_compile_options(result-tests PRIVATE -Wall -Wextra -pedantic)
   endif()
 endif()
