@@ -4142,21 +4142,100 @@ private:
 	data_type data_;
 };
 
+namespace traits::detail {
+
+template <class R1, class R2>
+struct results_are_equality_comparable{};
+
+template <class T1, class E1, class T2, class E2>
+struct results_are_equality_comparable<Result<T1, E1>, Result<T2, E2>> {
+	template <class T>
+	struct Tag {};
+
+	template <class T, class U, class R1 = decltype(std::declval<const T&>() == std::declval<const U&>())>
+	static constexpr auto is_eq_comp(Tag<T>, Tag<U>, int)
+		-> std::conditional_t<
+			is_contextually_convertible_to_bool_v<R1>,
+			std::true_type,
+			std::false_type
+		>
+	{
+		return std::conditional_t<
+			is_contextually_convertible_to_bool_v<R1>,
+			std::true_type,
+			std::false_type
+		>{};
+	}
+	
+	template <class T, class U>
+	static constexpr std::false_type is_eq_comp(Tag<T>, Tag<U>, ...) { return std::false_type{}; }
+	
+	static constexpr bool value = std::conjunction_v<
+		std::disjunction<
+			std::conjunction<
+				::tim::result::detail::is_cv_void<T1>,
+				::tim::result::detail::is_cv_void<T2>
+			>,
+			decltype(is_eq_comp(Tag<T1>{}, Tag<T2>{}, 0))
+		>,
+		decltype(is_eq_comp(Tag<E1>{}, Tag<E2>{}, 0))
+	>;
+};
+
+template <class R1, class R2>
+inline constexpr bool results_are_equality_comparable_v
+	= results_are_equality_comparable<R1, R2>::value;
+
+template <class R1, class R2>
+struct results_are_inequality_comparable{};
+template <class T1, class E1, class T2, class E2>
+struct results_are_inequality_comparable<Result<T1, E1>, Result<T2, E2>> {
+	template <class T>
+	struct Tag {};
+
+	template <class T, class U, class R1 = decltype(std::declval<const T&>() != std::declval<const U&>())>
+	static constexpr auto is_eq_comp(Tag<T>, Tag<U>, int)
+		-> std::conditional_t<
+			is_contextually_convertible_to_bool_v<R1>,
+			std::true_type,
+			std::false_type
+		>
+	{
+		return std::conditional_t<
+			is_contextually_convertible_to_bool_v<R1>,
+			std::true_type,
+			std::false_type
+		>{};
+	}
+	
+	template <class T, class U>
+	static constexpr std::false_type is_eq_comp(Tag<T>, Tag<U>, ...) { return std::false_type{}; }
+	
+	static constexpr bool value = std::conjunction_v<
+		std::disjunction<
+			std::conjunction<
+				::tim::result::detail::is_cv_void<T1>,
+				::tim::result::detail::is_cv_void<T2>
+			>,
+			decltype(is_eq_comp(Tag<T1>{}, Tag<T2>{}, 0))
+		>,
+		decltype(is_eq_comp(Tag<E1>{}, Tag<E2>{}, 0))
+	>;
+};
+
+template <class R1, class R2>
+inline constexpr bool results_are_inequality_comparable_v
+	= results_are_inequality_comparable<R1, R2>::value;
+
+
+} /* namespace traits::detail */
+
 /* --- Equality Operators --- */
 template <
 	class T1, class E1,
 	class T2, class E2,
 	std::enable_if_t<
-		std::conjunction_v<
-			std::disjunction<
-				std::conjunction<
-					detail::is_cv_void<T1>,
-					detail::is_cv_void<T2>
-				>,
-				traits::detail::is_contextually_convertible_to_bool<decltype(std::declval<const T1&>() == std::declval<const T2&>())>
-			>,
-			traits::detail::is_contextually_convertible_to_bool<decltype(std::declval<const E1&>() == std::declval<const E2&>())>
-		>,
+		traits::detail::results_are_equality_comparable_v<Result<T1, E1>, Result<T2, E2>>,
 		bool
 	> = false
 >
@@ -4255,20 +4334,12 @@ template <
 	class T1, class E1,
 	class T2, class E2,
 	std::enable_if_t<
-		std::conjunction_v<
-			std::disjunction<
-				std::conjunction<
-					detail::is_cv_void<T1>,
-					detail::is_cv_void<T2>
-				>,
-				traits::detail::is_contextually_convertible_to_bool<decltype(std::declval<const T1&>() != std::declval<const T2&>())>
-			>,
-			traits::detail::is_contextually_convertible_to_bool<decltype(std::declval<const E1&>() != std::declval<const E2&>())>
-		>,
+		traits::detail::results_are_inequality_comparable_v<Result<T1, E1>, Result<T2, E2>>,
 		bool
 	> = false
 >
 constexpr bool operator!=(const Result<T1, E1>& lhs, const Result<T2, E2>& rhs) {
+	static_assert(detail::is_cv_void_v<T1> == detail::is_cv_void_v<T2>);
 	if(lhs.has_value()) {
 		if(rhs.has_value()) {
 			if constexpr(!detail::is_cv_void_v<T1>) {
@@ -4300,9 +4371,9 @@ template <
 >
 constexpr bool operator!=(const Result<T1, E1>& lhs, T2&& rhs) {
 	if(lhs.has_value()) {
-		return lhs.value() == std::forward<T2>(rhs);
+		return lhs.value() != std::forward<T2>(rhs);
 	} else {
-		return false;
+		return true;
 	}
 }
 
@@ -4319,10 +4390,10 @@ template <
 	>
 >
 constexpr bool operator!=(T1&& lhs, const Result<T2, E2>& rhs) {
-	if(lhs.has_value()) {
-		return std::forward<T1>(lhs) == rhs.value();
+	if(rhs.has_value()) {
+		return std::forward<T1>(lhs) != rhs.value();
 	} else {
-		return false;
+		return true;
 	}
 }
 
@@ -4337,9 +4408,9 @@ template <
 >
 constexpr bool operator!=(const Result<T1, E1>& lhs, const Error<E2>& rhs) {
 	if(lhs.has_value()) {
-		return false;
+		return true;
 	}
-	return lhs.error() == rhs.value();
+	return lhs.error() != rhs.value();
 }
 
 template <
@@ -4353,9 +4424,9 @@ template <
 >
 constexpr bool operator!=(const Error<E1>& lhs, const Result<T2, E2>& rhs) {
 	if(rhs.has_value()) {
-		return false;
+		return true;
 	}
-	return lhs.value() == rhs.error();
+	return lhs.value() != rhs.error();
 }
 
 template <

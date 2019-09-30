@@ -138,7 +138,7 @@ TEST_CASE("Equality/Inequality", "[relops]") {
 	REQUIRE(tim::Result<void, int>(Error(0)) == Error(0));
 	REQUIRE(!(tim::Result<void, int>(Error(0)) != Error(0)));
 
-	REQUIRE(tim::Result<std::string, int>("test") == Error(0));
+	REQUIRE(!(tim::Result<std::string, int>("test") == Error(0)));
 	REQUIRE(tim::Result<const char*, int>("test") != Error(0));
 
 	REQUIRE(tim::Result<const char*, int>(tim::in_place_error, 0) == Error(0));
