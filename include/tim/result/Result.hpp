@@ -1117,7 +1117,73 @@ template <class T, class E>
 struct Result;
 
 template <class E>
+struct Error;
+
+namespace traits {
+
+template <class R>
+struct is_result: std::false_type {};
+
+template <class T, class E>
+struct is_result<Result<T, E>>: std::true_type {};
+
+template <class R>
+inline constexpr bool is_result_v = is_result<R>::value;
+
+template <class R>
+struct is_error: std::false_type {};
+
+template <class E>
+struct is_error<Error<E>>: std::true_type {};
+
+template <class E>
+inline constexpr bool is_error_v = is_error<E>::value;
+
+namespace detail {
+
+template <class T, decltype((std::declval<T>() ? true : false)) = false>
+constexpr std::true_type is_contextually_convertible_to_bool_helper(std::in_place_type_t<T>, int) {
+	return std::true_type{};
+}
+
+template <class T>
+constexpr std::false_type is_contextually_convertible_to_bool_helper(std::in_place_type_t<T>, ...) {
+	return std::false_type{};
+}
+
+template <class T>
+struct is_contextually_convertible_to_bool:
+	decltype(tim::traits::detail::is_contextually_convertible_to_bool_helper(std::in_place_type<T>, 0))
+{
+};
+
+template <class T>
+inline constexpr bool is_contextually_convertible_to_bool_v
+	= is_contextually_convertible_to_bool<T>::value;
+
+
+static_assert(is_contextually_convertible_to_bool_v<bool>);
+static_assert(is_contextually_convertible_to_bool_v<int>);
+static_assert(is_contextually_convertible_to_bool_v<void*>);
+struct NotConvertibleToBool {};
+static_assert(!is_contextually_convertible_to_bool_v<NotConvertibleToBool>);
+
+} /* namespace detail */
+
+} /* namespace traits */
+
+
+
+template <class E>
 struct Error {
+	static_assert(std::is_object_v<E>,
+		"Instantiating Error<E> for non object type 'E' is not permitted.");
+	static_assert(!std::is_array_v<E>,
+		"Instantiating Error<E> for array type 'E' is not permitted.");
+	static_assert(!traits::is_error_v<E>,
+		"Instantiating Error<Error<E>> is not permitted.");
+	static_assert(std::is_same_v<E, std::remove_cv_t<E>>,
+		"Instantiating Error<E> for const- or volatile-qualified 'E' is not permitted.");
 	using value_type = E;
 	Error() = delete;
 	Error(const Error&) = default;
@@ -1357,59 +1423,6 @@ using error_value_type_t = typename error_value_type<E>::type;
 
 } /* namespace detail */
 
-namespace traits {
-
-template <class R>
-struct is_result: std::false_type {};
-
-template <class T, class E>
-struct is_result<Result<T, E>>: std::true_type {};
-
-template <class R>
-inline constexpr bool is_result_v = is_result<R>::value;
-
-template <class R>
-struct is_error: std::false_type {};
-
-template <class E>
-struct is_error<Error<E>>: std::true_type {};
-
-template <class E>
-inline constexpr bool is_error_v = is_error<E>::value;
-
-namespace detail {
-
-template <class T, decltype((std::declval<T>() ? true : false)) = false>
-constexpr std::true_type is_contextually_convertible_to_bool_helper(std::in_place_type_t<T>, int) {
-	return std::true_type{};
-}
-
-template <class T>
-constexpr std::false_type is_contextually_convertible_to_bool_helper(std::in_place_type_t<T>, ...) {
-	return std::false_type{};
-}
-
-template <class T>
-struct is_contextually_convertible_to_bool:
-	decltype(tim::traits::detail::is_contextually_convertible_to_bool_helper(std::in_place_type<T>, 0))
-{
-};
-
-template <class T>
-inline constexpr bool is_contextually_convertible_to_bool_v
-	= is_contextually_convertible_to_bool<T>::value;
-
-
-static_assert(is_contextually_convertible_to_bool_v<bool>);
-static_assert(is_contextually_convertible_to_bool_v<int>);
-static_assert(is_contextually_convertible_to_bool_v<void*>);
-struct NotConvertibleToBool {};
-static_assert(!is_contextually_convertible_to_bool_v<NotConvertibleToBool>);
-
-} /* namespace detail */
-
-} /* namespace traits */
-
 template <class E>
 class BadResultAccess;
 
@@ -1550,10 +1563,27 @@ class BadResultAccess: BadResultAccessBase<E> {
 };
 
 template <class T, class E>
-struct Result;
-
-template <class T, class E>
 struct Result {
+	static_assert(std::is_object_v<E>,
+		"Instantiating Result<T, E> for non object type 'E' is not permitted.");
+	static_assert(!std::is_array_v<E>,
+		"Instantiating Result<T, E> for array type 'E' is not permitted.");
+	static_assert(!traits::is_error_v<E>,
+		"Instantiating Result<T, Error<E>> is not permitted.");
+	static_assert(std::is_same_v<E, std::remove_cv_t<E>>,
+		"Instantiating Result<T, E> for const- or volatile-qualified 'E' is not permitted.");
+	static_assert(!std::is_reference_v<T>,
+		"Instantiating Result<T, E> for reference type 'T' is not permitted.");
+	static_assert(!std::is_function_v<T>,
+		"Instantiating Result<T, E> for function type 'T' is not permitted.");
+	static_assert(!std::is_same_v<tim::result::in_place_t, std::remove_cv_t<T>>,
+		"Instantiating Result<T, E> where 'T' is const- or volatile-qualified 'in_place_t' is not permitted.");
+	static_assert(!std::is_same_v<tim::result::in_place_error_t, std::remove_cv_t<T>>,
+		"Instantiating Result<T, E> where 'T' is const- or volatile-qualified 'in_place_error_t' is not permitted.");
+	static_assert(!traits::is_error_v<T>,
+		"Instantiating Result<Error<T>, E> is not permitted.");
+
+
 	template <class U, class G>
 	friend struct Result;
 private:
@@ -4383,7 +4413,7 @@ template <
 	class E2,
 	std::enable_if_t<
 		!detail::is_cv_void_v<T2>
-		&& traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<T1&&>() == std::declval<const T2&>())>
+		&& traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<T1&&>() != std::declval<const T2&>())>
 		&& !traits::is_result_v<T1>
 		&& !traits::is_error_v<T1>,
 		bool
@@ -4402,7 +4432,7 @@ template <
 	class E1,
 	class E2,
 	std::enable_if_t<
-		traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<const E1&>() == std::declval<const E2&>())>,
+		traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<const E1&>() != std::declval<const E2&>())>,
 		bool
 	> = false
 >
@@ -4418,7 +4448,7 @@ template <
 	class T2,
 	class E2,
 	std::enable_if_t<
-		traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<const E1&>() == std::declval<const E2&>())>,
+		traits::detail::is_contextually_convertible_to_bool_v<decltype(std::declval<const E1&>() != std::declval<const E2&>())>,
 		bool
 	> = false
 >
