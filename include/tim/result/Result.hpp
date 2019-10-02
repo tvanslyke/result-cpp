@@ -98,6 +98,7 @@ struct ResultUnionImpl<MemberStatus::Defaulted, T, E> {
 	union {
 		std::conditional_t<is_cv_void_v<T>, EmptyAlternative, T> value;
 		E error;
+		EmptyAlternative hidden_;
 	};
 };
 
@@ -145,6 +146,7 @@ struct ResultUnionImpl<MemberStatus::Deleted, T, E> {
 	union {
 		std::conditional_t<is_cv_void_v<T>, EmptyAlternative, T> value;
 		E error;
+		EmptyAlternative hidden_;
 	};
 };
 
@@ -192,6 +194,7 @@ struct ResultUnionImpl<MemberStatus::Defined, T, E> {
 	union {
 		std::conditional_t<is_cv_void_v<T>, EmptyAlternative, T> value;
 		E error;
+		EmptyAlternative hidden_;
 	};
 };
 
@@ -770,9 +773,9 @@ struct ResultMoveConstructor<MemberStatus::Defined, T, E> {
 	):
 		base_([&]{
 			if(other.has_value()) {
-				return base_type(value_tag, std::move(other.value));
+				return base_type(value_tag, std::move(other.value()));
 			} else {
-				return base_type(error_tag, std::move(other.error));
+				return base_type(error_tag, std::move(other.error()));
 			}
 		}())
 	{

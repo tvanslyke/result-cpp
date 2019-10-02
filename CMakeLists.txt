@@ -15,12 +15,15 @@ target_sources(result-cpp INTERFACE
 	${CMAKE_CURRENT_SOURCE_DIR}/include/tim/result/Result.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/tim/result/expected.hpp)
 
-# Prepare "Catch" library for other executables
-set(CATCH_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 
-add_library(Catch INTERFACE)
-target_include_directories(Catch INTERFACE ${CATCH_INCLUDE_DIR})
 if(RESULT_ENABLE_TESTS)
+
+	# Prepare "Catch" library for other executables
+	set(CATCH_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+
+	add_library(Catch INTERFACE)
+	target_include_directories(Catch INTERFACE ${CATCH_INCLUDE_DIR})
+
 	function(AddFailingTest NAME SOURCES)
 		add_executable(test_${NAME} ${SOURCE})
 		set_property(TARGET test_${NAME} PROPERTY CXX_STANDARD ${CXXSTD})
@@ -37,7 +40,6 @@ if(RESULT_ENABLE_TESTS)
 
 	# Make test executable
 	set(TEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/tests/result/main.cpp
-		#${CMAKE_CURRENT_SOURCE_DIR}/tests/result/extensions.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/tests/result/assignment.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/tests/result/relops.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/tests/result/emplace.cpp
