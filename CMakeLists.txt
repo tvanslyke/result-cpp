@@ -65,6 +65,10 @@ if(RESULT_ENABLE_TESTS)
 	AddFailingTest(result_in_place_t_volatile_fail             ${CMAKE_CURRENT_SOURCE_DIR}/tests/result/types/in_place_t.volatile.fail.cpp)
 	AddFailingTest(result_reference_error_fail                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/result/types/reference-error.fail.cpp)
 	AddFailingTest(result_reference_fail                       ${CMAKE_CURRENT_SOURCE_DIR}/tests/result/types/reference.fail.cpp)
+	AddFailingTest(result_void_error_fail                      ${CMAKE_CURRENT_SOURCE_DIR}/tests/result/types/void-error.fail.cpp)
+	AddFailingTest(result_const_void_error_fail                ${CMAKE_CURRENT_SOURCE_DIR}/tests/result/types/const-void-error.fail.cpp)
+	AddFailingTest(result_volatile_void_error_fail             ${CMAKE_CURRENT_SOURCE_DIR}/tests/result/types/volatile-void-error.fail.cpp)
+	AddFailingTest(result_const_volatile_void_error_fail       ${CMAKE_CURRENT_SOURCE_DIR}/tests/result/types/const-volatile-void-error.fail.cpp)
 
 	add_executable(result-tests ${TEST_SOURCES})
 
