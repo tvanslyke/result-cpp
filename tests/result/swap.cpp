@@ -240,3 +240,490 @@ TEST_CASE("swap") {
 	}
 
 }
+
+namespace swap_test_namespace {
+
+struct NotSwappable {};
+void swap(NotSwappable &, NotSwappable &) = delete;
+
+struct NotCopyable {
+	NotCopyable() = default;
+	NotCopyable(const NotCopyable &) = delete;
+	NotCopyable &operator=(const NotCopyable &) = delete;
+};
+
+struct NotCopyableWithSwap {
+	NotCopyableWithSwap() = default;
+	NotCopyableWithSwap(const NotCopyableWithSwap &) = delete;
+	NotCopyableWithSwap &operator=(const NotCopyableWithSwap &) = delete;
+};
+void swap(NotCopyableWithSwap &, NotCopyableWithSwap) {}
+
+struct NotMoveAssignable {
+	NotMoveAssignable() = default;
+	NotMoveAssignable(NotMoveAssignable &&) = default;
+	NotMoveAssignable &operator=(NotMoveAssignable &&) = delete;
+};
+
+struct NotMoveAssignableWithSwap {
+	NotMoveAssignableWithSwap() = default;
+	NotMoveAssignableWithSwap(NotMoveAssignableWithSwap &&) = default;
+	NotMoveAssignableWithSwap &operator=(NotMoveAssignableWithSwap &&) = delete;
+};
+void swap(NotMoveAssignableWithSwap &, NotMoveAssignableWithSwap &) noexcept {}
+
+template <bool Throws> void do_throw() {}
+
+template <> void do_throw<true>() {
+	throw 42;
+}
+
+template <bool NT_Copy, bool NT_Move, bool NT_CopyAssign, bool NT_MoveAssign,
+					bool NT_Swap, bool EnableSwap = true>
+struct NothrowTypeImp {
+	static int move_called;
+	static int move_assign_called;
+	static int swap_called;
+	static void reset() { move_called = move_assign_called = swap_called = 0; }
+	NothrowTypeImp() = default;
+	explicit NothrowTypeImp(int v) : value(v) {}
+	NothrowTypeImp(const NothrowTypeImp &o) noexcept(NT_Copy) : value(o.value) {
+		REQUIRE(false);
+	} // never called by test
+	NothrowTypeImp(NothrowTypeImp &&o) noexcept(NT_Move) : value(o.value) {
+		++move_called;
+		do_throw<!NT_Move>();
+		o.value = -1;
+	}
+	NothrowTypeImp &operator=(const NothrowTypeImp &) noexcept(NT_CopyAssign) {
+		REQUIRE(false);
+		return *this;
+	} // never called by the tests
+	NothrowTypeImp &operator=(NothrowTypeImp &&o) noexcept(NT_MoveAssign) {
+		++move_assign_called;
+		do_throw<!NT_MoveAssign>();
+		value = o.value;
+		o.value = -1;
+		return *this;
+	}
+	int value;
+};
+template <bool NT_Copy, bool NT_Move, bool NT_CopyAssign, bool NT_MoveAssign,
+					bool NT_Swap, bool EnableSwap>
+int NothrowTypeImp<NT_Copy, NT_Move, NT_CopyAssign, NT_MoveAssign, NT_Swap,
+									 EnableSwap>::move_called = 0;
+template <bool NT_Copy, bool NT_Move, bool NT_CopyAssign, bool NT_MoveAssign,
+					bool NT_Swap, bool EnableSwap>
+int NothrowTypeImp<NT_Copy, NT_Move, NT_CopyAssign, NT_MoveAssign, NT_Swap,
+									 EnableSwap>::move_assign_called = 0;
+template <bool NT_Copy, bool NT_Move, bool NT_CopyAssign, bool NT_MoveAssign,
+					bool NT_Swap, bool EnableSwap>
+int NothrowTypeImp<NT_Copy, NT_Move, NT_CopyAssign, NT_MoveAssign, NT_Swap,
+									 EnableSwap>::swap_called = 0;
+
+template <bool NT_Copy, bool NT_Move, bool NT_CopyAssign, bool NT_MoveAssign,
+					bool NT_Swap>
+void swap(NothrowTypeImp<NT_Copy, NT_Move, NT_CopyAssign, NT_MoveAssign,
+												 NT_Swap, true> &lhs,
+					NothrowTypeImp<NT_Copy, NT_Move, NT_CopyAssign, NT_MoveAssign,
+												 NT_Swap, true> &rhs) noexcept(NT_Swap) {
+	lhs.swap_called++;
+	do_throw<!NT_Swap>();
+	int tmp = lhs.value;
+	lhs.value = rhs.value;
+	rhs.value = tmp;
+}
+
+// throwing copy, nothrow move ctor/assign, no swap provided
+using NothrowMoveable = NothrowTypeImp<false, true, false, true, false, false>;
+// throwing copy and move assign, nothrow move ctor, no swap provided
+using NothrowMoveCtor = NothrowTypeImp<false, true, false, false, false, false>;
+// nothrow move ctor, throwing move assignment, swap provided
+using NothrowMoveCtorWithThrowingSwap =
+		NothrowTypeImp<false, true, false, false, false, true>;
+// throwing move ctor, nothrow move assignment, no swap provided
+using ThrowingMoveCtor =
+		NothrowTypeImp<false, false, false, true, false, false>;
+// throwing special members, nothrowing swap
+using ThrowingTypeWithNothrowSwap =
+		NothrowTypeImp<false, false, false, false, true, true>;
+using NothrowTypeWithThrowingSwap =
+		NothrowTypeImp<true, true, true, true, false, true>;
+// throwing move assign with nothrow move and nothrow swap
+using ThrowingMoveAssignNothrowMoveCtorWithSwap =
+		NothrowTypeImp<false, true, false, false, true, true>;
+// throwing move assign with nothrow move but no swap.
+using ThrowingMoveAssignNothrowMoveCtor =
+		NothrowTypeImp<false, true, false, false, false, false>;
+
+struct NonThrowingNonNoexceptType {
+	static int move_called;
+	static void reset() { move_called = 0; }
+	NonThrowingNonNoexceptType() = default;
+	NonThrowingNonNoexceptType(int v) : value(v) {}
+	NonThrowingNonNoexceptType(NonThrowingNonNoexceptType &&o) noexcept(false)
+			: value(o.value) {
+		++move_called;
+		o.value = -1;
+	}
+	NonThrowingNonNoexceptType &
+	operator=(NonThrowingNonNoexceptType &&) noexcept(false) {
+		REQUIRE(false); // never called by the tests.
+		return *this;
+	}
+	int value;
+};
+int NonThrowingNonNoexceptType::move_called = 0;
+
+struct ThrowsOnSecondMove {
+	int value;
+	int move_count;
+	ThrowsOnSecondMove(int v) : value(v), move_count(0) {}
+	ThrowsOnSecondMove(ThrowsOnSecondMove &&o) noexcept(false)
+			: value(o.value), move_count(o.move_count + 1) {
+		if (move_count == 2)
+			do_throw<true>();
+		o.value = -1;
+	}
+	ThrowsOnSecondMove &operator=(ThrowsOnSecondMove &&) {
+		REQUIRE(false); // not called by test
+		return *this;
+	}
+};
+
+TEST_CASE("Swap same value") {
+	{
+		using T = ThrowingTypeWithNothrowSwap;
+		using V = tim::Result<T, int>;
+		T::reset();
+		V v1(tim::in_place, 42);
+		V v2(tim::in_place, 100);
+		v1.swap(v2);
+		REQUIRE(T::swap_called == 1);
+		REQUIRE(v1.value().value == 100);
+		REQUIRE(v2.value().value == 42);
+		swap(v1, v2);
+		REQUIRE(T::swap_called == 2);
+		REQUIRE(v1.value().value == 42);
+		REQUIRE(v2.value().value == 100);
+	}
+	{
+		using T = NothrowMoveable;
+		using V = tim::Result<T, int>;
+		T::reset();
+		V v1(tim::in_place, 42);
+		V v2(tim::in_place, 100);
+		v1.swap(v2);
+		REQUIRE(T::swap_called == 0);
+		REQUIRE(T::move_called == 1);
+		REQUIRE(T::move_assign_called == 2);
+		REQUIRE(v1.value().value == 100);
+		REQUIRE(v2.value().value == 42);
+		T::reset();
+		swap(v1, v2);
+		REQUIRE(T::swap_called == 0);
+		REQUIRE(T::move_called == 1);
+		REQUIRE(T::move_assign_called == 2);
+		REQUIRE(v1.value().value == 42);
+		REQUIRE(v2.value().value == 100);
+	}
+	{
+		using T = NothrowTypeWithThrowingSwap;
+		using V = tim::Result<T, int>;
+		T::reset();
+		V v1(tim::in_place, 42);
+		V v2(tim::in_place, 100);
+		try {
+			v1.swap(v2);
+			REQUIRE(false);
+		} catch (int) {
+		}
+		REQUIRE(T::swap_called == 1);
+		REQUIRE(T::move_called == 0);
+		REQUIRE(T::move_assign_called == 0);
+		REQUIRE(v1.value().value == 42);
+		REQUIRE(v2.value().value == 100);
+	}
+	{
+		using T = ThrowingMoveCtor;
+		using V = tim::Result<T, int>;
+		T::reset();
+		V v1(tim::in_place, 42);
+		V v2(tim::in_place, 100);
+		try {
+			v1.swap(v2);
+			REQUIRE(false);
+		} catch (int) {
+		}
+		REQUIRE(T::move_called == 1); // call threw
+		REQUIRE(T::move_assign_called == 0);
+		REQUIRE(v1.value().value ==
+					 42); // throw happened before v1 was moved from
+		REQUIRE(v2.value().value == 100);
+	}
+	{
+		using T = ThrowingMoveAssignNothrowMoveCtor;
+		using V = tim::Result<T, int>;
+		T::reset();
+		V v1(tim::in_place, 42);
+		V v2(tim::in_place, 100);
+		try {
+			v1.swap(v2);
+			REQUIRE(false);
+		} catch (int) {
+		}
+		REQUIRE(T::move_called == 1);
+		REQUIRE(T::move_assign_called == 1);	// call threw and didn't complete
+		REQUIRE(v1.value().value == -1); // v1 was moved from
+		REQUIRE(v2.value().value == 100);
+	}
+}
+
+void test_swap_different_alternatives() {
+	{
+		using T = NothrowMoveCtorWithThrowingSwap;
+		using V = tim::Result<T, int>;
+		T::reset();
+		V v1(tim::in_place, 42);
+		V v2(tim::in_place_error, 100);
+		v1.swap(v2);
+		REQUIRE(T::swap_called == 0);
+		// The libc++ implementation double copies the argument, and not
+		// the variant swap is called on.
+		REQUIRE(T::move_called == 1);
+		REQUIRE(T::move_called <= 2);
+		REQUIRE(T::move_assign_called == 0);
+		REQUIRE(v1.error() == 100);
+		REQUIRE(v2.value().value == 42);
+		T::reset();
+		swap(v1, v2);
+		REQUIRE(T::swap_called == 0);
+		REQUIRE(T::move_called == 2);
+		REQUIRE(T::move_called <= 2);
+		REQUIRE(T::move_assign_called == 0);
+		REQUIRE(v1.value().value == 42);
+		REQUIRE(v2.error() == 100);
+	}
+	{
+		using T1 = ThrowingTypeWithNothrowSwap;
+		using T2 = NonThrowingNonNoexceptType;
+		using V = tim::Result<T1, T2>;
+		T1::reset();
+		T2::reset();
+		V v1(tim::in_place, 42);
+		V v2(tim::in_place_error, 100);
+		try {
+			v1.swap(v2);
+			REQUIRE(false);
+		} catch (int) {
+		}
+		REQUIRE(T1::swap_called == 0);
+		REQUIRE(T1::move_called == 1); // throws
+		REQUIRE(T1::move_assign_called == 0);
+		REQUIRE(T2::move_called == 1);
+		REQUIRE(T2::move_called <= 1);
+		REQUIRE(v1.value().value == 42);
+		REQUIRE(v2.error().value == 100);
+	}
+	{
+		using T1 = NonThrowingNonNoexceptType;
+		using T2 = ThrowingTypeWithNothrowSwap;
+		using V = tim::Result<T1, T2>;
+		T1::reset();
+		T2::reset();
+		V v1(tim::in_place, 42);
+		V v2(tim::in_place_error, 100);
+		try {
+			v1.swap(v2);
+			REQUIRE(false);
+		} catch (int) {
+		}
+		REQUIRE(T1::move_called == 0);
+		REQUIRE(T1::move_called <= 1);
+		REQUIRE(T2::swap_called == 0);
+		REQUIRE(T2::move_called == 1); // throws
+		REQUIRE(T2::move_assign_called == 0);
+		REQUIRE(v1.value().value == 42);
+		REQUIRE(v2.error().value == 100);
+	}
+	{
+		using T1 = ThrowsOnSecondMove;
+		using T2 = NonThrowingNonNoexceptType;
+		using V = tim::Result<T1, T2>;
+		T2::reset();
+		V v1(tim::in_place, 42);
+		V v2(tim::in_place_error, 100);
+		v1.swap(v2);
+		REQUIRE(T2::move_called == 2);
+		REQUIRE(v1.error().value == 100);
+		REQUIRE(v2.value().value == 42);
+		REQUIRE(v2.value().move_count == 1);
+	}
+	{
+		using T1 = NonThrowingNonNoexceptType;
+		using T2 = ThrowsOnSecondMove;
+		using V = tim::Result<T1, T2>;
+		T1::reset();
+		V v1(tim::in_place, 42);
+		V v2(tim::in_place_error, 100);
+		try {
+			v1.swap(v2);
+			REQUIRE(false);
+		} catch (int) {
+		}
+		REQUIRE(T1::move_called == 1);
+		REQUIRE(v1.has_value());
+		REQUIRE(v1.value().value == 42);
+		REQUIRE(!v2.has_value());
+		REQUIRE(v2.error().value == 100);
+	}
+	{
+
+		using T1 = ThrowingTypeWithNothrowSwap;
+		using T2 = NothrowMoveable;
+		using V = tim::Result<T1, T2>;
+		T1::reset();
+		T2::reset();
+		V v1(tim::in_place, 42);
+		V v2(tim::in_place_error, 100);
+		try {
+			v1.swap(v2);
+			REQUIRE(false);
+		} catch (int) {
+		}
+		REQUIRE(T1::swap_called == 0);
+		REQUIRE(T1::move_called == 1);
+		REQUIRE(T1::move_assign_called == 0);
+		REQUIRE(T2::swap_called == 0);
+		REQUIRE(T2::move_called == 2);
+		REQUIRE(T2::move_assign_called == 0);
+		REQUIRE(v1.value().value == 42);
+		REQUIRE(v2.error().value == 100);
+		// swap again, but call v2's swap.
+		T1::reset();
+		T2::reset();
+		try {
+			v2.swap(v1);
+			REQUIRE(false);
+		} catch (int) {
+		}
+		REQUIRE(T1::swap_called == 0);
+		REQUIRE(T1::move_called == 1);
+		REQUIRE(T1::move_assign_called == 0);
+		REQUIRE(T2::swap_called == 0);
+		REQUIRE(T2::move_called == 2);
+		REQUIRE(T2::move_assign_called == 0);
+		REQUIRE(v1.value().value == 42);
+		REQUIRE(v2.error().value == 100);
+	}
+}
+
+template <class Var>
+constexpr auto has_swap_member_imp(int)
+		-> decltype(std::declval<Var &>().swap(std::declval<Var &>()), true) {
+	return true;
+}
+
+template <class Var> constexpr auto has_swap_member_imp(long) -> bool {
+	return false;
+}
+
+template <class Var> constexpr bool has_swap_member() {
+	return has_swap_member_imp<Var>(0);
+}
+
+void test_swap_sfinae() {
+	{
+		// This variant type does not provide either a member or non-member swap
+		// but is still swappable via the generic swap algorithm, since the
+		// variant is move constructible and move assignable.
+		using V = tim::Result<int, NotSwappable>;
+		static_assert(!has_swap_member<V>(), "");
+		static_assert(std::is_swappable_v<V>, "");
+	}
+	{
+		using V = tim::Result<int, NotCopyable>;
+		static_assert(!has_swap_member<V>(), "");
+		static_assert(!std::is_swappable_v<V>, "");
+	}
+	{
+		using V = tim::Result<int, NotCopyableWithSwap>;
+		static_assert(!has_swap_member<V>(), "");
+		static_assert(!std::is_swappable_v<V>, "");
+	}
+	{
+		using V = tim::Result<int, NotMoveAssignable>;
+		static_assert(!has_swap_member<V>(), "");
+		static_assert(!std::is_swappable_v<V>, "");
+	}
+}
+
+void test_swap_noexcept() {
+	{
+		using V = tim::Result<int, NothrowMoveable>;
+		static_assert(std::is_swappable_v<V> && has_swap_member<V>(), "");
+		static_assert(std::is_nothrow_swappable_v<V>, "");
+		// instantiate swap
+		V v1, v2;
+		v1.swap(v2);
+		swap(v1, v2);
+	}
+	{
+		using V = tim::Result<int, NothrowMoveCtor>;
+		static_assert(std::is_swappable_v<V> && has_swap_member<V>(), "");
+		static_assert(!std::is_nothrow_swappable_v<V>, "");
+		// instantiate swap
+		V v1, v2;
+		v1.swap(v2);
+		swap(v1, v2);
+	}
+	{
+		using V = tim::Result<int, ThrowingTypeWithNothrowSwap>;
+		static_assert(std::is_swappable_v<V> && has_swap_member<V>(), "");
+		static_assert(!std::is_nothrow_swappable_v<V>, "");
+		// instantiate swap
+		V v1, v2;
+		v1.swap(v2);
+		swap(v1, v2);
+	}
+	{
+		using V = tim::Result<int, ThrowingMoveAssignNothrowMoveCtor>;
+		static_assert(std::is_swappable_v<V> && has_swap_member<V>(), "");
+		static_assert(!std::is_nothrow_swappable_v<V>, "");
+		// instantiate swap
+		V v1, v2;
+		v1.swap(v2);
+		swap(v1, v2);
+	}
+	{
+		using V = tim::Result<int, ThrowingMoveAssignNothrowMoveCtorWithSwap>;
+		static_assert(std::is_swappable_v<V> && has_swap_member<V>(), "");
+		static_assert(std::is_nothrow_swappable_v<V>, "");
+		// instantiate swap
+		V v1, v2;
+		v1.swap(v2);
+		swap(v1, v2);
+	}
+	{
+		using V = tim::Result<int, NotMoveAssignableWithSwap>;
+		static_assert(std::is_swappable_v<V> && has_swap_member<V>(), "");
+		static_assert(std::is_nothrow_swappable_v<V>, "");
+		// instantiate swap
+		V v1, v2;
+		v1.swap(v2);
+		swap(v1, v2);
+	}
+	{
+		// This type does not provide either a member or non-member swap
+		// but is still swappable via the generic swap algorithm, since the
+		// variant is move constructible and move assignable.
+		using V = tim::Result<int, NotSwappable>;
+		static_assert(!has_swap_member<V>(), "");
+		static_assert(std::is_swappable_v<V>, "");
+		static_assert(std::is_nothrow_swappable_v<V>, "");
+		V v1, v2;
+		std::swap(v1, v2);
+	}
+}
+
+} /* namespace swap_test_namespace */

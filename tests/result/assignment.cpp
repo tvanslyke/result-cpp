@@ -3,7 +3,6 @@
 #include "tim/result/Result.hpp"
 
 #include "support/variant_test_helpers.h"
-
 TEST_CASE("Simple assignment", "[assignment.simple]") {
 	tim::Result<int, int> e1 = 42;
 	tim::Result<int, int> e2 = 17;
@@ -1203,8 +1202,8 @@ struct ThrowsCtorT {
 struct MoveCrashes {
 	int value;
 	MoveCrashes(int v = 0) noexcept : value{v} {}
-	MoveCrashes(MoveCrashes &&) noexcept { assert(false); }
-	MoveCrashes &operator=(MoveCrashes &&) noexcept { assert(false); return *this; }
+	MoveCrashes(MoveCrashes &&) noexcept { REQUIRE(false); }
+	MoveCrashes &operator=(MoveCrashes &&) noexcept { REQUIRE(false); return *this; }
 	MoveCrashes &operator=(int v) noexcept {
 		value = v;
 		return *this;
@@ -1215,7 +1214,7 @@ struct ThrowsCtorTandMove {
 	int value;
 	ThrowsCtorTandMove() : value(0) {}
 	ThrowsCtorTandMove(int) noexcept(false) { throw 42; }
-	ThrowsCtorTandMove(ThrowsCtorTandMove &&) noexcept(false) { assert(false); }
+	ThrowsCtorTandMove(ThrowsCtorTandMove &&) noexcept(false) { REQUIRE(false); }
 	ThrowsCtorTandMove &operator=(int v) noexcept {
 		value = v;
 		return *this;
@@ -1241,11 +1240,11 @@ struct NoThrowT {
 
 } /* namespace RuntimeHelpers */
 
-void test_T_assignment_noexcept() {
+TEST_CASE("T assignment noexcept") {
 	using namespace MetaHelpers;
 	{
 		using V = tim::Result<Dummy, NoThrowT>;
-		static_assert(std::is_nothrow_assignable<V, int>::value, "");
+		static_assert(!std::is_nothrow_assignable<V, int>::value, "");
 	}
 	{
 		using V = tim::Result<Dummy, ThrowsCtorT>;
@@ -1255,16 +1254,28 @@ void test_T_assignment_noexcept() {
 		using V = tim::Result<Dummy, ThrowsAssignT>;
 		static_assert(!std::is_nothrow_assignable<V, int>::value, "");
 	}
+	{
+		using V = tim::Result<NoThrowT, Dummy>;
+		static_assert(std::is_nothrow_assignable<V, int>::value, "");
+	}
+	{
+		using V = tim::Result<ThrowsCtorT, Dummy>;
+		static_assert(!std::is_nothrow_assignable<V, int>::value, "");
+	}
+	{
+		using V = tim::Result<ThrowsAssignT, Dummy>;
+		static_assert(!std::is_nothrow_assignable<V, int>::value, "");
+	}
 }
 
-void test_T_assignment_sfinae() {
+TEST_CASE("T assignment sfinae") {
 	{
 		using V = tim::Result<long, long long>;
-		static_assert(!std::is_assignable<V, int>::value, "ambiguous");
+		static_assert(std::is_assignable<V, int>::value, "");
 	}
 	{
 		using V = tim::Result<std::string, std::string>;
-		static_assert(!std::is_assignable<V, const char *>::value, "ambiguous");
+		static_assert(std::is_assignable<V, const char *>::value, "ambiguous");
 	}
 	{
 		using V = tim::Result<std::string, void *>;
@@ -1272,8 +1283,7 @@ void test_T_assignment_sfinae() {
 	}
 	{
 		using V = tim::Result<std::string, float>;
-		static_assert(std::is_assignable<V, int>::value == VariantAllowsNarrowingConversions,
-		"no matching operator=");
+		static_assert(std::is_assignable<V, int>::value == false, "no matching operator=");
 	}
 	{
 		using V = tim::Result<std::unique_ptr<int>, bool>;
@@ -1292,147 +1302,148 @@ void test_T_assignment_sfinae() {
 		struct Y {
 			operator X();
 		};
-		using V = tim::Result<X>;
-		static_assert(std::is_assignable<V, Y>::value,
-									"regression on user-defined conversions in operator=");
-	}
-	{
-		using V = tim::Result<int, int &&>;
-		static_assert(!std::is_assignable<V, int>::value, "ambiguous");
-	}
-	{
-		using V = tim::Result<int, const int &>;
-		static_assert(!std::is_assignable<V, int>::value, "ambiguous");
+		using V = tim::Result<X, int>;
+		static_assert(std::is_assignable<V, Y>::value, "regression on user-defined conversions in operator=");
 	}
 }
 
-void test_T_assignment_basic() {
+TEST_CASE("Basic T assignment") {
 	{
-		tim::Result<int> v(43);
+		tim::Result<int, int> v(43);
 		v = 42;
-		assert(v.index() == 0);
-		assert(std::get<0>(v) == 42);
+		REQUIRE(v.has_value() == true);
+		REQUIRE(v.value() == 42);
 	}
 	{
-		tim::Result<int, long> v(43l);
+		tim::Result<int, long> v(tim::Error(43l));
 		v = 42;
-		assert(v.index() == 0);
-		assert(std::get<0>(v) == 42);
-		v = 43l;
-		assert(v.index() == 1);
-		assert(std::get<1>(v) == 43);
+		REQUIRE(v.has_value() == true);
+		REQUIRE(v.value() == 42);
+		v = tim::Error(43l);
+		REQUIRE(v.has_value() == false);
+		REQUIRE(v.error() == 43);
 	}
 	{
 		tim::Result<unsigned, long> v;
-		v = 42;
-		assert(v.index() == 1);
-		assert(std::get<1>(v) == 42);
+		v = tim::Error(42);
+		REQUIRE(v.has_value() == false);
+		REQUIRE(v.error() == 42);
 		v = 43u;
-		assert(v.index() == 0);
-		assert(std::get<0>(v) == 43);
+		REQUIRE(v.has_value() == true);
+		REQUIRE(v.value() == 43);
 	}
 	{
-		tim::Result<std::string, bool> v = true;
+		tim::Result<std::string, bool> v = tim::Error(true);
 		v = "bar";
-		assert(v.index() == 0);
-		assert(std::get<0>(v) == "bar");
+		REQUIRE(v.has_value() == true);
+		REQUIRE(v.value() == "bar");
 	}
 	{
 		tim::Result<bool, std::unique_ptr<int>> v;
-		v = nullptr;
-		assert(v.index() == 1);
-		assert(std::get<1>(v) == nullptr);
+		v = tim::Error(nullptr);
+		REQUIRE(v.has_value() == false);
+		REQUIRE(v.error() == nullptr);
 	}
 	{
 		tim::Result<bool volatile, int> v = 42;
 		v = false;
-		assert(v.index() == 0);
-		assert(!std::get<0>(v));
+		REQUIRE(v.has_value() == true);
+		REQUIRE(!v.value());
 		bool lvt = true;
 		v = lvt;
-		assert(v.index() == 0);
-		assert(std::get<0>(v));
-	}
-	{
-		using V = tim::Result<int &, int &&, long>;
-		int x = 42;
-		V v(43l);
-		v = x;
-		assert(v.index() == 0);
-		assert(&std::get<0>(v) == &x);
-		v = std::move(x);
-		assert(v.index() == 1);
-		assert(&std::get<1>(v) == &x);
-		// 'long' is selected by FUN(const int &) since 'const int &' cannot bind
-		// to 'int&'.
-		const int &cx = x;
-		v = cx;
-		assert(v.index() == 2);
-		assert(std::get<2>(v) == 42);
+		REQUIRE(v.has_value() == true);
+		REQUIRE(v.value());
+		v = tim::Error(false);
+		REQUIRE(v.has_value() == false);
+		REQUIRE(!v.error());
 	}
 }
 
-void test_T_assignment_performs_construction() {
+TEST_CASE("T assignment construction") {
 	using namespace RuntimeHelpers;
 	{
 		using V = tim::Result<std::string, ThrowsCtorT>;
-		V v(std::in_place_type<std::string>, "hello");
+		V v(tim::in_place, "hello");
 		try {
-			v = 42;
-			assert(false);
+			v = tim::Error(42);
+			REQUIRE(false);
 		} catch (...) { /* ... */
 		}
-		assert(v.index() == 0);
-		assert(std::get<0>(v) == "hello");
+		REQUIRE(v.has_value() == true);
+		REQUIRE(v.value() == "hello");
 	}
 	{
 		using V = tim::Result<ThrowsAssignT, std::string>;
-		V v(std::in_place_type<std::string>, "hello");
+		V v(tim::in_place_error, "hello");
 		v = 42;
-		assert(v.index() == 0);
-		assert(std::get<0>(v).value == 42);
+		REQUIRE(v.has_value() == true);
+		REQUIRE(v.value().value == 42);
 	}
 }
 
-void test_T_assignment_performs_assignment() {
+TEST_CASE("T assignment performs assignment") {
 	using namespace RuntimeHelpers;
 	{
-		using V = tim::Result<ThrowsCtorT>;
+		using V = tim::Result<ThrowsCtorT, int>;
 		V v;
 		v = 42;
-		assert(v.index() == 0);
-		assert(std::get<0>(v).value == 42);
+		REQUIRE(v.has_value() == true);
+		REQUIRE(v.value().value == 42);
 	}
 	{
 		using V = tim::Result<ThrowsCtorT, std::string>;
 		V v;
 		v = 42;
-		assert(v.index() == 0);
-		assert(std::get<0>(v).value == 42);
+		REQUIRE(v.has_value() == true);
+		REQUIRE(v.value().value == 42);
 	}
 	{
-		using V = tim::Result<ThrowsAssignT>;
+		using V = tim::Result<ThrowsAssignT, int>;
 		V v(100);
 		try {
 			v = 42;
-			assert(false);
+			REQUIRE(false);
 		} catch (...) { /* ... */
 		}
-		assert(v.index() == 0);
-		assert(std::get<0>(v).value == 100);
+		REQUIRE(v.has_value() == true);
+		REQUIRE(v.value().value == 100);
 	}
 	{
 		using V = tim::Result<std::string, ThrowsAssignT>;
-		V v(100);
+		V v(tim::Error(100));
 		try {
-			v = 42;
-			assert(false);
+			v = tim::Error(42);
+			REQUIRE(false);
 		} catch (...) { /* ... */
 		}
-		assert(v.index() == 1);
-		assert(std::get<1>(v).value == 100);
+		REQUIRE(v.has_value() == false);
+		REQUIRE(v.error().value == 100);
 	}
 }
 
 } /* namespace T_assignment */
+
+namespace conv_assignment {
+
+TEST_CASE("Conv assignment") {
+	static_assert(std::is_assignable<tim::Result<int, int>, int>::value, "");
+	static_assert(!std::is_assignable<tim::Result<int, int>, void*>::value, "");
+	static_assert(std::is_assignable<tim::Result<long, long long>, int>::value, "");
+	static_assert(std::is_assignable<tim::Result<char, int>, int>::value, "");
+	
+	static_assert(!std::is_assignable<tim::Result<int, bool>, decltype("meow")>::value, "");
+
+	struct ExplicitBool {
+	
+		explicit constexpr operator bool () const noexcept { return true; }
+	};
+	
+	static_assert(std::is_assignable<tim::Result<bool, int>, std::true_type>::value, "");
+	static_assert(!std::is_assignable<tim::Result<bool, int>, ExplicitBool>::value, "");
+	static_assert(!std::is_assignable<tim::Result<bool, int>, std::unique_ptr<char> >::value, "");
+	static_assert(!std::is_assignable<tim::Result<bool, int>, decltype(nullptr)>::value, "");
+}
+
+} /* namespace conv_assignment */
+
 

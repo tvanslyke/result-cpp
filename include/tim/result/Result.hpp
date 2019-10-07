@@ -58,6 +58,136 @@ using error_tag_t = std::in_place_index_t<1>;
 inline constexpr value_tag_t value_tag = value_tag_t{};
 inline constexpr error_tag_t error_tag = error_tag_t{};
 
+template <class Type, class ... T>
+struct first_type_matches: std::false_type {};
+
+template <class Type, class T, class ... U>
+struct first_type_matches<Type, T, U ...>: std::is_same<Type, T> {};
+
+template <
+	class T,
+	bool = (
+		std::is_same_v<std::remove_cv_t<T>, T>
+		&& std::is_empty_v<T>
+		&& std::is_standard_layout_v<T>
+		&& std::is_class_v<T>
+		&& !std::is_final_v<T>
+       )
+>
+struct ValueWrapper;
+
+template <class T>
+struct ValueWrapper<T, false> {
+	using value_type = T;
+
+	ValueWrapper() = default;
+
+	ValueWrapper(const ValueWrapper&) = default;
+	ValueWrapper(ValueWrapper&&) = default;
+
+	template <
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<T, Args&& ...>
+			&& std::conditional_t<
+				(sizeof...(Args) == 1),
+				std::negation<
+					std::disjunction<
+						std::is_same<ValueWrapper, std::decay_t<Args>>...
+					>
+				>,
+				std::true_type
+			>::value,
+			bool
+		> = false
+	>
+	constexpr ValueWrapper(Args&& ... args):
+		value_(std::forward<Args>(args)...)
+	{
+
+	}
+
+	template <
+		class U,
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<T, std::initializer_list<U>&, Args&& ...>,
+			bool
+		> = false
+	>
+	constexpr ValueWrapper(std::initializer_list<U> ilist, Args&& ... args):
+		value_(ilist, std::forward<Args>(args)...)
+	{
+
+	}
+
+	ValueWrapper& operator=(const ValueWrapper&) = default;
+	ValueWrapper& operator=(ValueWrapper&&) = default;
+
+	constexpr const value_type&  value() const&  { return this->value_; }
+	constexpr       value_type&  value()      &  { return this->value_; }
+	constexpr const value_type&& value() const&& { return std::move(this->value_); }
+	constexpr       value_type&& value()      && { return std::move(this->value_); }
+
+private:
+	T value_;
+};
+
+template <class T>
+struct ValueWrapper<T, true>: private T {
+	using value_type = T;
+
+	ValueWrapper() = default;
+
+	ValueWrapper(const ValueWrapper&) = default;
+	ValueWrapper(ValueWrapper&&) = default;
+
+	template <
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<T, Args&& ...>
+			&& std::conditional_t<
+				(sizeof...(Args) == 1),
+				std::negation<
+					std::disjunction<
+						std::is_same<ValueWrapper, std::decay_t<Args>>...
+					>
+				>,
+				std::true_type
+			>::value,
+			bool
+		> = false
+	>
+	constexpr ValueWrapper(Args&& ... args):
+		value_type(std::forward<Args>(args)...)
+	{
+
+	}
+
+	template <
+		class U,
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<T, std::initializer_list<U>&, Args&& ...>,
+			bool
+		> = false
+	>
+	constexpr ValueWrapper(std::initializer_list<U> ilist, Args&& ... args):
+		value_type(ilist, std::forward<Args>(args)...)
+	{
+
+	}
+
+	ValueWrapper& operator=(const ValueWrapper&) = default;
+	ValueWrapper& operator=(ValueWrapper&&) = default;
+
+	constexpr const value_type&  value() const&  { return *static_cast<const T*>(this); }
+	constexpr       value_type&  value()      &  { return *static_cast<T*>(this); }
+	constexpr const value_type&& value() const&& { return std::move(*static_cast<const T*>(this)); }
+	constexpr       value_type&& value()      && { return std::move(*static_cast<T*>(this)); }
+
+};
+
 template <class T, class E>
 struct ResultUnionImpl<MemberStatus::Defaulted, T, E> {
 
@@ -96,8 +226,8 @@ struct ResultUnionImpl<MemberStatus::Defaulted, T, E> {
 	}
 
 	union {
-		std::conditional_t<is_cv_void_v<T>, EmptyAlternative, T> value;
-		E error;
+		ValueWrapper<std::conditional_t<is_cv_void_v<T>, EmptyAlternative, T>> value;
+		ValueWrapper<E> error;
 		EmptyAlternative hidden_;
 	};
 };
@@ -144,8 +274,8 @@ struct ResultUnionImpl<MemberStatus::Deleted, T, E> {
 	}
 
 	union {
-		std::conditional_t<is_cv_void_v<T>, EmptyAlternative, T> value;
-		E error;
+		ValueWrapper<std::conditional_t<is_cv_void_v<T>, EmptyAlternative, T>> value;
+		ValueWrapper<E> error;
 		EmptyAlternative hidden_;
 	};
 };
@@ -192,8 +322,8 @@ struct ResultUnionImpl<MemberStatus::Defined, T, E> {
 	}
 
 	union {
-		std::conditional_t<is_cv_void_v<T>, EmptyAlternative, T> value;
-		E error;
+		ValueWrapper<std::conditional_t<is_cv_void_v<T>, EmptyAlternative, T>> value;
+		ValueWrapper<E> error;
 		EmptyAlternative hidden_;
 	};
 };
@@ -259,14 +389,68 @@ struct ResultBaseMethods {
 		
 	}
 
-	constexpr const value_type& value() const { return *std::launder(std::addressof(data_.value)); }
-	constexpr       value_type& value()       { return *std::launder(std::addressof(data_.value)); }
+	constexpr const value_type& value() const { return std::launder(std::addressof(data_.value))->value(); }
+	constexpr       value_type& value()       { return std::launder(std::addressof(data_.value))->value(); }
 
-	constexpr const E& error() const { return *std::launder(std::addressof(data_.error)); }
-	constexpr       E& error()       { return *std::launder(std::addressof(data_.error)); }
+	constexpr const E& error() const { return std::launder(std::addressof(data_.error))->value(); }
+	constexpr       E& error()       { return std::launder(std::addressof(data_.error))->value(); }
 
 	constexpr const bool& has_value() const noexcept { return has_value_; }
 	constexpr bool&       has_value()       noexcept { return has_value_; }
+
+	template <
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<value_type, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr void emplace_value(Args&& ... args)
+		noexcept(std::is_nothrow_constructible_v<value_type, Args&&...>)
+	{
+		new (std::addressof(data_.value)) ValueWrapper<T>(std::forward<Args>(args)...);
+	}
+
+	template <
+		class U,
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<value_type, std::initializer_list<U>&, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr void emplace_value(std::initializer_list<U> ilist, Args&& ... args)
+		noexcept(std::is_nothrow_constructible_v<value_type, std::initializer_list<U>&, Args&&...>)
+	{
+		new (std::addressof(data_.value)) ValueWrapper<T>(ilist, std::forward<Args>(args)...);
+	}
+
+	template <
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<E, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr void emplace_error(Args&& ... args)
+		noexcept(std::is_nothrow_constructible_v<E, Args&&...>)
+	{
+		(new (std::addressof(data_.error)) ValueWrapper<E>(std::forward<Args>(args)...))->value();
+	}
+
+	template <
+		class U,
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<E, std::initializer_list<U>&, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr void emplace_error(std::initializer_list<U> ilist, Args&& ... args)
+		noexcept(std::is_nothrow_constructible_v<E, std::initializer_list<U>&, Args&&...>)
+	{
+		(new (std::addressof(data_.error)) ValueWrapper<E>(ilist, std::forward<Args>(args)...))->value();
+	}
 
 	constexpr void destruct_value() noexcept {
 		if constexpr(
@@ -493,6 +677,8 @@ struct ResultDestructor<MemberStatus::Defaulted, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 
 	constexpr ResultDestructor() = default;
 
@@ -515,6 +701,8 @@ struct ResultDestructor<MemberStatus::Defined, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 	
 	constexpr ResultDestructor() = default;
 	constexpr ResultDestructor(const ResultDestructor&) = default;
@@ -539,6 +727,8 @@ struct ResultDefaultConstructor<MemberStatus::Defaulted, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 
 	constexpr ResultDefaultConstructor() = default;
 	constexpr ResultDefaultConstructor(const ResultDefaultConstructor&) = default;
@@ -559,6 +749,8 @@ struct ResultDefaultConstructor<MemberStatus::Deleted, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 
 	constexpr ResultDefaultConstructor() = delete;
 	constexpr ResultDefaultConstructor(const ResultDefaultConstructor&) = default;
@@ -579,6 +771,8 @@ struct ResultDefaultConstructor<MemberStatus::Defined, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 	
 	constexpr ResultDefaultConstructor() noexcept(std::is_nothrow_default_constructible_v<T>):
 		base_type(value_tag)
@@ -604,6 +798,8 @@ struct ResultCopyConstructor<MemberStatus::Defaulted, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 
 	constexpr ResultCopyConstructor() = default;
 	constexpr ResultCopyConstructor(const ResultCopyConstructor&) = default;
@@ -624,6 +820,8 @@ struct ResultCopyConstructor<MemberStatus::Deleted, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 
 	constexpr ResultCopyConstructor() = default;
 	constexpr ResultCopyConstructor(const ResultCopyConstructor&) = delete;
@@ -693,6 +891,60 @@ struct ResultCopyConstructor<MemberStatus::Defined, T, E>
 	constexpr const bool& has_value() const noexcept { return base_.has_value(); }
 	constexpr bool&       has_value()       noexcept { return base_.has_value(); }
 
+	template <
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<value_type, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr void emplace_value(Args&& ... args)
+		noexcept(std::is_nothrow_constructible_v<value_type, Args&&...>)
+	{
+		base_.emplace_value(std::forward<Args>(args)...);
+	}
+
+	template <
+		class U,
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<value_type, std::initializer_list<U>&, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr void emplace_value(std::initializer_list<U> ilist, Args&& ... args)
+		noexcept(std::is_nothrow_constructible_v<value_type, std::initializer_list<U>&, Args&&...>)
+	{
+		base_.emplace_value(ilist, std::forward<Args>(args)...);
+	}
+
+	template <
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<E, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr void emplace_error(Args&& ... args)
+		noexcept(std::is_nothrow_constructible_v<E, Args&&...>)
+	{
+		base_.emplace_error(std::forward<Args>(args)...);
+	}
+
+	template <
+		class U,
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<E, std::initializer_list<U>&, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr void emplace_error(std::initializer_list<U> ilist, Args&& ... args)
+		noexcept(std::is_nothrow_constructible_v<E, std::initializer_list<U>&, Args&&...>)
+	{
+		base_.emplace_error(ilist, std::forward<Args>(args)...);
+	}
+
 	constexpr void destruct_value() noexcept {
 		return base_.destruct_value();
 	}
@@ -723,6 +975,8 @@ struct ResultMoveConstructor<MemberStatus::Defaulted, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 
 	constexpr ResultMoveConstructor() = default;
 	constexpr ResultMoveConstructor(const ResultMoveConstructor&) = default;
@@ -747,6 +1001,8 @@ struct ResultMoveConstructor<MemberStatus::Deleted, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 
 	constexpr ResultMoveConstructor() = default;
 	constexpr ResultMoveConstructor(const ResultMoveConstructor&) = default;
@@ -830,6 +1086,60 @@ struct ResultMoveConstructor<MemberStatus::Defined, T, E> {
 		return base_.destruct_error();
 	}
 
+	template <
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<value_type, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr void emplace_value(Args&& ... args)
+		noexcept(std::is_nothrow_constructible_v<value_type, Args&&...>)
+	{
+		base_.emplace_value(std::forward<Args>(args)...);
+	}
+
+	template <
+		class U,
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<value_type, std::initializer_list<U>&, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr void emplace_value(std::initializer_list<U> ilist, Args&& ... args)
+		noexcept(std::is_nothrow_constructible_v<value_type, std::initializer_list<U>&, Args&&...>)
+	{
+		base_.emplace_value(ilist, std::forward<Args>(args)...);
+	}
+
+	template <
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<E, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr void emplace_error(Args&& ... args)
+		noexcept(std::is_nothrow_constructible_v<E, Args&&...>)
+	{
+		base_.emplace_error(std::forward<Args>(args)...);
+	}
+
+	template <
+		class U,
+		class ... Args,
+		std::enable_if_t<
+			std::is_constructible_v<E, std::initializer_list<U>&, Args&&...>,
+			bool
+		> = false
+	>
+	constexpr void emplace_error(std::initializer_list<U> ilist, Args&& ... args)
+		noexcept(std::is_nothrow_constructible_v<E, std::initializer_list<U>&, Args&&...>)
+	{
+		 base_.emplace_error(ilist, std::forward<Args>(args)...);
+	}
+
 	constexpr void destruct() noexcept {
 		return base_.destruct();
 	}
@@ -850,6 +1160,8 @@ struct ResultCopyAssign<MemberStatus::Defaulted, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 
 	constexpr ResultCopyAssign() = default;
 	constexpr ResultCopyAssign(const ResultCopyAssign&) = default;
@@ -870,6 +1182,8 @@ struct ResultCopyAssign<MemberStatus::Deleted, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 
 	constexpr ResultCopyAssign() = default;
 	constexpr ResultCopyAssign(const ResultCopyAssign&) = default;
@@ -890,6 +1204,8 @@ struct ResultCopyAssign<MemberStatus::Defined, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 	
 	constexpr ResultCopyAssign() = default;
 	constexpr ResultCopyAssign(const ResultCopyAssign& other) = default;
@@ -934,19 +1250,19 @@ private:
 			destruct_error();
 		} else if constexpr(std::is_nothrow_copy_constructible_v<T>) {
 			destruct_error();
-			new (std::addressof(this->value())) T(other.value());
+			this->emplace_value(other.value());
 		} else if constexpr(std::is_nothrow_move_constructible_v<T>) {
 			T tmp(other.value());
 			destruct_error();
-			new (std::addressof(this->value())) T(std::move(tmp));
+			this->emplace_value(std::move(tmp));
 		} else {
 			static_assert(std::is_nothrow_move_constructible_v<E>);
 			E tmp(std::move(this->error()));
 			destruct_error();
 			auto guard = make_manual_scope_guard([&](){
-				new (std::addressof(this->error())) E(std::move(tmp));
+				this->emplace_error(std::move(tmp));
 			});
-			new (std::addressof(this->value())) T(other.value());
+			this->emplace_value(other.value());
 			guard.active = false;
 		}
 		has_value() = true;
@@ -954,22 +1270,22 @@ private:
 
 	constexpr void copy_assign_case(const ResultCopyAssign& other, std::true_type, std::false_type) {
 		if constexpr(is_cv_void_v<T>) {
-			new (std::addressof(this->error())) E(other.error());
+			this->emplace_error(other.error());
 		} else if constexpr(std::is_nothrow_copy_constructible_v<E>) {
 			destruct_value();
-			new (std::addressof(this->error())) E(other.error());
+			this->emplace_error(other.error());
 		} else if constexpr(std::is_nothrow_move_constructible_v<E>) {
 			E tmp(other.error());
 			destruct_value();
-			new (std::addressof(this->value())) E(std::move(tmp));
+			this->emplace_error(std::move(tmp));
 		} else {
 			static_assert(std::is_nothrow_move_constructible_v<T>);
 			T tmp(std::move(this->value()));
 			destruct_value();
 			auto guard = make_manual_scope_guard([&](){
-				new (std::addressof(this->value())) T(std::move(tmp));
+				this->emplace_value(std::move(tmp));
 			});
-			new (std::addressof(this->error())) E(other.error());
+			this->emplace_error(other.error());
 			guard.active = false;
 		}
 		has_value() = false;
@@ -988,6 +1304,8 @@ struct ResultMoveAssign<MemberStatus::Defaulted, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 
 	constexpr ResultMoveAssign() = default;
 	constexpr ResultMoveAssign(const ResultMoveAssign&) = default;
@@ -1008,6 +1326,8 @@ struct ResultMoveAssign<MemberStatus::Deleted, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 
 	constexpr ResultMoveAssign() = default;
 	constexpr ResultMoveAssign(const ResultMoveAssign&) = default;
@@ -1028,6 +1348,8 @@ struct ResultMoveAssign<MemberStatus::Defined, T, E>:
 	using base_type::destruct;
 	using base_type::destruct_value;
 	using base_type::destruct_error;
+	using base_type::emplace_value;
+	using base_type::emplace_error;
 	
 	constexpr ResultMoveAssign() = default;
 	constexpr ResultMoveAssign(const ResultMoveAssign& other) = default;
@@ -1070,7 +1392,7 @@ private:
 			destruct_error();
 		} else if constexpr(std::is_nothrow_move_constructible_v<T>) {
 			destruct_error();
-			new (std::addressof(this->value())) T(std::move(other.value()));
+			this->emplace_value(std::move(other.value()));
 		} else {
 			static_assert(
 				std::is_nothrow_move_constructible_v<E>,
@@ -1079,9 +1401,9 @@ private:
 			E tmp(std::move(this->error()));
 			destruct_error();
 			auto guard = make_manual_scope_guard([&](){
-				new (std::addressof(this->error())) E(std::move(tmp));
+				this->emplace_error(std::move(tmp));
 			});
-			new (std::addressof(this->value())) T(std::move(other.value()));
+			this->emplace_value(std::move(other.value()));
 			guard.active = false;
 		}
 		has_value() = true;
@@ -1089,18 +1411,18 @@ private:
 
 	constexpr void move_assign_case(ResultMoveAssign&& other, std::true_type, std::false_type) {
 		if constexpr(is_cv_void_v<T>) {
-			new (std::addressof(this->error())) E(std::move(other.error()));
+			this->emplace_error(std::move(other.error()));
 		} else if constexpr(std::is_nothrow_move_constructible_v<E>) {
 			destruct_value();
-			new (std::addressof(this->error())) E(std::move(other.error()));
+			this->emplace_error(std::move(other.error()));
 		} else {
 			static_assert(std::is_nothrow_move_constructible_v<T>);
 			T tmp(std::move(this->value()));
 			destruct_value();
 			auto guard = make_manual_scope_guard([&](){
-				new (std::addressof(this->value())) T(std::move(tmp));
+				this->emplace_value(std::move(tmp));
 			});
-			new (std::addressof(this->error())) E(std::move(other.error()));
+			this->emplace_error(std::move(other.error()));
 			guard.active = false;
 		}
 		has_value() = false;
@@ -1981,15 +2303,15 @@ public:
 		}
 		if constexpr(std::is_nothrow_constructible_v<T, U&&>) {
 			this->destruct_error();
-			new (std::addressof(this->val())) T(std::forward<U>(v));
+			this->data_.emplace_value(std::forward<U>(v));
 		} else {
 			static_assert(std::is_nothrow_move_constructible_v<E>);
 			E tmp(std::move(this->err()));
 			this->destruct_error();
 			auto guard = detail::make_manual_scope_guard([&](){
-				new (std::addressof(this->err())) E(std::move(tmp));
+				this->data_.emplace_error(std::move(tmp));
 			});
-			new (std::addressof(this->val())) T(std::forward<U>(v));
+			this->data_.emplace_value(std::forward<U>(v));
 			guard.active = false;
 		}
 		data_.has_value() = true;
@@ -2021,15 +2343,15 @@ public:
 		}
 		if constexpr(std::is_nothrow_constructible_v<E, const G&>) {
 			this->destruct_value();
-			new (std::addressof(this->err())) E(e.value());
+			this->data_.emplace_error(e.value());
 		} else {
 			static_assert(std::is_nothrow_move_constructible_v<T>);
 			T tmp(std::move(this->val()));
 			this->destruct_error();
 			auto guard = detail::make_manual_scope_guard([&](){
-				new (std::addressof(this->val())) T(std::move(tmp));
+				this->data_.emplace_value(std::move(tmp));
 			});
-			new (std::addressof(this->err())) E(e.value());
+			this->data_.emplace_error(e.value());
 			guard.active = false;
 		}
 		data_.has_value() = false;
@@ -2060,15 +2382,15 @@ public:
 		}
 		if constexpr(std::is_nothrow_constructible_v<E, G&&>) {
 			this->destruct_value();
-			new (std::addressof(this->err())) E(std::move(e.value()));
+			this->data_.emplace_error(std::move(e.value()));
 		} else {
 			static_assert(std::is_nothrow_move_constructible_v<T>);
 			T tmp(std::move(this->val()));
 			this->destruct_error();
 			auto guard = detail::make_manual_scope_guard([&](){
-				new (std::addressof(this->val())) T(std::move(tmp));
+				this->data_.emplace_value(std::move(tmp));
 			});
-			new (std::addressof(this->err())) E(std::move(e.value()));
+			this->data_.emplace_error(std::move(e.value()));
 			guard.active = false;
 		}
 		data_.has_value() = false;
@@ -2098,10 +2420,10 @@ public:
 		if constexpr(std::is_nothrow_constructible_v<T, Args&& ...>) {
 			if(this->has_value()) {
 				this->destruct_value();
-				new (std::addressof(this->val())) T(std::forward<Args>(args)...);
+				this->data_.emplace_value(std::forward<Args>(args)...);
 			} else {
 				this->destruct_error();
-				new (std::addressof(this->val())) T(std::forward<Args>(args)...);
+				this->data_.emplace_value(std::forward<Args>(args)...);
 				data_.has_value() = true;
 			}
 			return this->val();
@@ -2109,10 +2431,10 @@ public:
 			T tmp(std::forward<Args>(args)...);
 			if(this->has_value()) {
 				this->destruct_value();
-				new (std::addressof(this->val())) T(std::move(tmp));
+				this->data_.emplace_value(std::move(tmp));
 			} else {
 				this->destruct_error();
-				new (std::addressof(this->val())) T(std::move(tmp));
+				this->data_.emplace_value(std::move(tmp));
 				data_.has_value() = true;
 			}
 			return this->val();
@@ -2125,9 +2447,9 @@ public:
 				E tmp(std::move(this->err()));
 				this->destruct_error();
 				auto guard = detail::make_manual_scope_guard([&](){
-					new (std::addressof(this->err())) E(std::move(tmp));
+					this->data_.emplace_error(std::move(tmp));
 				});
-				new (std::addressof(this->val())) T(std::forward<Args>(args)...);
+				this->data_.emplace_value(std::forward<Args>(args)...);
 				guard.active = false;
 				data_.has_value() = true;
 			}
@@ -2158,10 +2480,10 @@ public:
 		if constexpr(std::is_nothrow_constructible_v<T, Args&& ...>) {
 			if(this->has_value()) {
 				this->destruct_value();
-				new (std::addressof(this->val())) T(ilist, std::forward<Args>(args)...);
+				this->data_.emplace_value(ilist, std::forward<Args>(args)...);
 			} else {
 				this->destruct_error();
-				new (std::addressof(this->val())) T(ilist, std::forward<Args>(args)...);
+				this->data_.emplace_value(ilist, std::forward<Args>(args)...);
 				data_.has_value() = true;
 			}
 			return this->val();
@@ -2169,10 +2491,10 @@ public:
 			T tmp(ilist, std::forward<Args>(args)...);
 			if(this->has_value()) {
 				this->destruct_value();
-				new (std::addressof(this->val())) T(std::move(tmp));
+				this->data_.emplace_value(std::move(tmp));
 			} else {
 				this->destruct_error();
-				new (std::addressof(this->val())) T(std::move(tmp));
+				this->data_.emplace_value(std::move(tmp));
 				data_.has_value() = true;
 			}
 			return this->val();
@@ -2185,9 +2507,9 @@ public:
 				E tmp(std::move(this->err()));
 				this->destruct_error();
 				auto guard = detail::make_manual_scope_guard([&](){
-					new (std::addressof(this->err())) E(std::move(tmp));
+					this->data_.emplace_error(std::move(tmp));
 				});
-				new (std::addressof(this->val())) T(ilist, std::forward<Args>(args)...);
+				this->data_.emplace_value(ilist, std::forward<Args>(args)...);
 				guard.active = false;
 				data_.has_value() = true;
 			}
@@ -2378,27 +2700,31 @@ private:
 		if constexpr(std::is_nothrow_move_constructible_v<E>) {
 			E tmp(std::move(other.err()));
 			other.destruct_error();
-			auto guard = detail::make_manual_scope_guard([&](){
-				new (std::addressof(other.err())) E(std::move(tmp));
-			});
-			new (std::addressof(other.val())) T(std::move(this->val()));
-			guard.active = false;
+			{
+				auto guard = detail::make_manual_scope_guard([&](){
+					other.data_.emplace_error(std::move(tmp));
+				});
+				other.data_.emplace_value(std::move(this->val()));
+				guard.active = false;
+			}
 			other.data_.has_value() = true;
 			this->destruct_value();
-			new (std::addressof(this->err())) E(std::move(tmp));
+			this->data_.emplace_error(std::move(tmp));
 			this->data_.has_value() = false;
 		} else {
 			static_assert(std::is_nothrow_move_constructible_v<T>);
 			T tmp(std::move(this->val()));
 			this->destruct_value();
-			auto guard = detail::make_manual_scope_guard([&](){
-				new (std::addressof(this->val())) T(std::move(tmp));
-			});
-			new (std::addressof(this->err())) E(std::move(other.err()));
-			guard.active = false;
+			{
+				auto guard = detail::make_manual_scope_guard([&](){
+					this->data_.emplace_value(std::move(tmp));
+				});
+				this->data_.emplace_error(std::move(other.err()));
+				guard.active = false;
+			}
 			this->data_.has_value() = false;
 			other.destruct_error();
-			new (std::addressof(other.val())) T(std::move(tmp));
+			other.data_.emplace_value(std::move(tmp));
 			other.data_.has_value() = true;
 		}
 	}
@@ -2703,7 +3029,7 @@ public:
 			this->err() = e.value();
 			return *this;
 		}
-		new (std::addressof(this->err())) E(e.value());
+		this->data_.emplace_error(e.value());
 		data_.has_value() = false;
 		return *this;
 	}
@@ -2726,7 +3052,7 @@ public:
 			this->err() = std::move(e.value());
 			return *this;
 		}
-		new (std::addressof(this->err())) E(std::move(e.value()));
+		this->data_.emplace_error(std::move(e.value()));
 		data_.has_value() = false;
 		return *this;
 	}
@@ -2760,14 +3086,14 @@ public:
 			if(other.has_value()) {
 				return;
 			} else {
-				new (std::addressof(this->error())) E(std::move(other.error()));
+				this->data_.emplace_error(std::move(other.error()));
 				this->data_.has_value() = false;
 				other.destruct_error();
-				other.data_.has_value() = false;
+				other.data_.has_value() = true;
 			}
 		} else {
 			if(other.has_value()) {
-				new (std::addressof(other.error())) E(std::move(this->error()));
+				other.data_.emplace_error(std::move(this->error()));
 				other.data_.has_value() = false;
 				this->destruct_error();
 				this->data_.has_value() = true;
@@ -3137,7 +3463,7 @@ public:
 			this->err() = e.value();
 			return *this;
 		}
-		new (std::addressof(this->err())) E(e.value());
+		this->data_.emplace_error(e.value());
 		data_.has_value() = false;
 		return *this;
 	}
@@ -3160,7 +3486,7 @@ public:
 			this->err() = std::move(e.value());
 			return *this;
 		}
-		new (std::addressof(this->err())) E(std::move(e.value()));
+		this->data_.emplace_error(std::move(e.value()));
 		data_.has_value() = false;
 		return *this;
 	}
@@ -3194,14 +3520,14 @@ public:
 			if(other.has_value()) {
 				return;
 			} else {
-				new (std::addressof(this->error())) E(std::move(other.error()));
+				this->data_.emplace_error(std::move(other.error()));
 				this->data_.has_value() = false;
 				other.destruct_error();
-				other.data_.has_value() = false;
+				other.data_.has_value() = true;
 			}
 		} else {
 			if(other.has_value()) {
-				new (std::addressof(other.error())) E(std::move(this->error()));
+				other.data_.emplace_error(std::move(this->error()));
 				other.data_.has_value() = false;
 				this->destruct_error();
 				this->data_.has_value() = true;
@@ -3571,7 +3897,7 @@ public:
 			this->err() = e.value();
 			return *this;
 		}
-		new (std::addressof(this->err())) E(e.value());
+		this->data_.emplace_error(e.value());
 		data_.has_value() = false;
 		return *this;
 	}
@@ -3594,7 +3920,7 @@ public:
 			this->err() = std::move(e.value());
 			return *this;
 		}
-		new (std::addressof(this->err())) E(std::move(e.value()));
+		this->data_.emplace_error(std::move(e.value()));
 		data_.has_value() = false;
 		return *this;
 	}
@@ -3628,14 +3954,14 @@ public:
 			if(other.has_value()) {
 				return;
 			} else {
-				new (std::addressof(this->error())) E(std::move(other.error()));
+				this->data_.emplace_error(std::move(other.error()));
 				this->data_.has_value() = false;
 				other.destruct_error();
-				other.data_.has_value() = false;
+				other.data_.has_value() = true;
 			}
 		} else {
 			if(other.has_value()) {
-				new (std::addressof(other.error())) E(std::move(this->error()));
+				other.data_.emplace_error(std::move(this->error()));
 				other.data_.has_value() = false;
 				this->destruct_error();
 				this->data_.has_value() = true;
@@ -4005,7 +4331,7 @@ public:
 			this->err() = e.value();
 			return *this;
 		}
-		new (std::addressof(this->err())) E(e.value());
+		this->data_.emplace_error(e.value());
 		data_.has_value() = false;
 		return *this;
 	}
@@ -4028,7 +4354,7 @@ public:
 			this->err() = std::move(e.value());
 			return *this;
 		}
-		new (std::addressof(this->err())) E(std::move(e.value()));
+		this->data_.emplace_error(std::move(e.value()));
 		data_.has_value() = false;
 		return *this;
 	}
@@ -4062,14 +4388,14 @@ public:
 			if(other.has_value()) {
 				return;
 			} else {
-				new (std::addressof(this->error())) E(std::move(other.error()));
+				this->data_.emplace_error(std::move(other.error()));
 				this->data_.has_value() = false;
 				other.destruct_error();
 				other.data_.has_value() = false;
 			}
 		} else {
 			if(other.has_value()) {
-				new (std::addressof(other.error())) E(std::move(this->error()));
+				other.data_.emplace_error(std::move(this->error()));
 				other.data_.has_value() = false;
 				this->destruct_error();
 				this->data_.has_value() = true;
