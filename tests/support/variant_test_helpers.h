@@ -39,7 +39,7 @@ struct CopyThrows {
 };
 
 struct MoveThrows {
-  static int alive;
+  static inline int alive = 0;
   MoveThrows() { ++alive; }
   MoveThrows(MoveThrows const&) {++alive;}
   MoveThrows(MoveThrows&&) {  throw 42; }
@@ -48,10 +48,8 @@ struct MoveThrows {
   ~MoveThrows() { --alive; }
 };
 
-int MoveThrows::alive = 0;
-
 struct MakeEmptyT {
-  static int alive;
+  static inline int alive = 0;
   MakeEmptyT() { ++alive; }
   MakeEmptyT(MakeEmptyT const&) {
       ++alive;
@@ -70,8 +68,6 @@ struct MakeEmptyT {
    ~MakeEmptyT() { --alive; }
 };
 static_assert(std::is_swappable_v<MakeEmptyT>, ""); // required for test
-
-int MakeEmptyT::alive = 0;
 
 template <class Variant>
 void makeEmpty(Variant& v) {

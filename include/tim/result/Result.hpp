@@ -958,7 +958,7 @@ private:
 		} else if constexpr(std::is_nothrow_copy_constructible_v<E>) {
 			destruct_value();
 			new (std::addressof(this->error())) E(other.error());
-		} else if constexpr(std::is_nothrow_move_constructible_v<T>) {
+		} else if constexpr(std::is_nothrow_move_constructible_v<E>) {
 			E tmp(other.error());
 			destruct_value();
 			new (std::addressof(this->value())) E(std::move(tmp));
@@ -1100,7 +1100,7 @@ private:
 			auto guard = make_manual_scope_guard([&](){
 				new (std::addressof(this->value())) T(std::move(tmp));
 			});
-			new (std::addressof(this->error())) E(other.error());
+			new (std::addressof(this->error())) E(std::move(other.error()));
 			guard.active = false;
 		}
 		has_value() = false;
