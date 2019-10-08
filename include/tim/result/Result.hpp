@@ -1769,6 +1769,15 @@ template <class E>
 class BadResultAccessBase<E, false, false>: BadResultAccess<void> {
 public:
 	BadResultAccessBase() = default;
+
+	constexpr E* error() {
+		return nullptr;
+	}
+
+	constexpr const E* error() const {
+		return nullptr;
+	}
+
 };
 
 template <class E>
@@ -1780,29 +1789,21 @@ public:
 
 	explicit constexpr BadResultAccessBase(const E& err):
 		BadResultAccess<void>(),
-		error_(err)
+		error_(std::in_place, err)
 	{
 		
 	}
 
-	constexpr E& error() & {
-		return error_;
+	constexpr E* error() {
+		return error_ ? std::addressof(*error_) : nullptr;
 	}
 
-	constexpr const E& error() const& {
-		return error_;
-	}
-
-	constexpr E&& error() && {
-		return std::move(error_);
-	}
-
-	constexpr const E&& error() const&& {
-		return std::move(error_);
+	constexpr const E* error() const {
+		return error_ ? std::addressof(*error_) : nullptr;
 	}
 
 private:
-	E error_;
+	std::optional<E> error_ = std::nullopt;
 };
 
 template <class E>
@@ -1814,29 +1815,21 @@ public:
 
 	explicit constexpr BadResultAccessBase(E&& err):
 		BadResultAccess<void>(),
-		error_(std::move(err))
+		error_(std::in_place, std::move(err))
 	{
 		
 	}
 
-	constexpr E& error() & {
-		return error_;
+	constexpr E* error() {
+		return error_ ? std::addressof(*error_) : nullptr;
 	}
 
-	constexpr const E& error() const& {
-		return error_;
-	}
-
-	constexpr E&& error() && {
-		return std::move(error_);
-	}
-
-	constexpr const E&& error() const&& {
-		return std::move(error_);
+	constexpr const E* error() const {
+		return error_ ? std::addressof(*error_) : nullptr;
 	}
 
 private:
-	E error_;
+	std::optional<E> error_ = std::nullopt;
 };
 
 template <class E>
@@ -1858,20 +1851,12 @@ public:
 		
 	}
 
-	constexpr E& error() & {
-		return error_;
+	constexpr E* error() {
+		return std::addressof(error_);
 	}
 
-	constexpr const E& error() const& {
-		return error_;
-	}
-
-	constexpr E&& error() && {
-		return std::move(error_);
-	}
-
-	constexpr const E&& error() const&& {
-		return std::move(error_);
+	constexpr const E* error() const {
+		return std::addressof(error_);
 	}
 
 private:
@@ -1879,12 +1864,12 @@ private:
 };
 
 template <class E>
-class BadResultAccess: BadResultAccessBase<E> {
+class BadResultAccess: public BadResultAccessBase<E> {
 	using base_type = BadResultAccessBase<E>;
+public:
 	using base_type::base_type;
-
+	using base_type::error;
 	BadResultAccess() = default;
-
 };
 
 template <class T, class E>
@@ -2524,7 +2509,11 @@ public:
 				std::is_move_constructible<T>,
 				std::is_swappable<T>,
 				std::is_move_constructible<E>,
-				std::is_swappable<E>
+				std::is_swappable<E>,
+				std::disjunction<
+					std::is_nothrow_move_constructible<T>,
+					std::is_nothrow_move_constructible<E>
+				>
 			>,
 			bool
 		> = false
@@ -2671,7 +2660,7 @@ private:
 
 	[[noreturn]]
 	void throw_bad_result_access() const& noexcept(false) {
-		if constexpr(std::is_move_constructible_v<E>) {
+		if constexpr(std::is_copy_constructible_v<E>) {
 			throw BadResultAccess<E>(this->error());
 		} else {
 			throw BadResultAccess<E>();
@@ -4799,7 +4788,12 @@ template <
 			>,
 			std::is_swappable<T>,
 			std::is_move_constructible<E>,
-			std::is_swappable<E>
+			std::is_swappable<E>,
+			std::disjunction<
+				detail::is_cv_void<T>,
+				std::is_nothrow_move_constructible<T>,
+				std::is_nothrow_move_constructible<E>
+			>
 		>,
 		bool
 	> = false
