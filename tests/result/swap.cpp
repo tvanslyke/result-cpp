@@ -248,19 +248,19 @@ namespace detail {
 template <class T>
 struct Tag {};
 
-template <class T, class = decltype(std::declval<T>().swap(std::declval<T>()))>
+template <class T, class = decltype(std::declval<T&>().swap(std::declval<T&>()))>
 static constexpr std::true_type  is_member_swappable_helper(Tag<T>, int) { return std::true_type{}; }
 
 template <class T>
 static constexpr std::false_type is_member_swappable_helper(Tag<T>, ...) { return std::false_type{}; }
 
-template <class T, class = decltype(swap(std::declval<T>(), std::declval<T>()))>
+template <class T, class = decltype(swap(std::declval<T&>(), std::declval<T&>()))>
 static constexpr std::true_type  is_non_member_swappable_helper(Tag<T>, int) { return std::true_type{}; }
 
 template <class T>
 static constexpr std::false_type is_non_member_swappable_helper(Tag<T>, ...) { return std::false_type{}; }
 
-template <class T, class = decltype(std::swap(std::declval<T>(), std::declval<T>()))>
+template <class T, class = decltype(std::swap(std::declval<T&>(), std::declval<T&>()))>
 static constexpr std::true_type  is_std_swappable_helper(Tag<T>, int) { return std::true_type{}; }
 
 template <class T>
@@ -540,78 +540,57 @@ void test_swap_different_alternatives() {
 		using T2 = int;
 		using V = tim::Result<T1, T2>;
 		if constexpr(std::is_nothrow_move_constructible_v<T1> || std::is_nothrow_move_constructible_v<T2>) {
-			static_assert(!std::is_swappable_v<V>);
-			static_assert(!is_std_swappable_v<V>);
-			static_assert(is_non_member_swappable_v<V>);
-			static_assert(is_member_swappable_v<V>);
-			T::reset();
+			REQUIRE(std::is_swappable_v<V>);
+			REQUIRE(is_std_swappable_v<V>);
+			REQUIRE(is_non_member_swappable_v<V>);
+			REQUIRE(is_member_swappable_v<V>);
+			T1::reset();
 			V v1(tim::in_place, 42);
 			V v2(tim::in_place_error, 100);
 			v1.swap(v2);
-			REQUIRE(T::swap_called == 0);
+			REQUIRE(T1::swap_called == 0);
 			// The libc++ implementation double copies the argument, and not
 			// the variant swap is called on.
-			REQUIRE(T::move_called == 1);
-			REQUIRE(T::move_called <= 2);
-			REQUIRE(T::move_assign_called == 0);
+			REQUIRE(T1::move_called == 1);
+			REQUIRE(T1::move_called <= 2);
+			REQUIRE(T1::move_assign_called == 0);
 			REQUIRE(v1.error() == 100);
 			REQUIRE(v2.value().value == 42);
-			T::reset();
+			T1::reset();
 			swap(v1, v2);
-			REQUIRE(T::swap_called == 0);
-			REQUIRE(T::move_called == 2);
-			REQUIRE(T::move_called <= 2);
-			REQUIRE(T::move_assign_called == 0);
+			REQUIRE(T1::swap_called == 0);
+			REQUIRE(T1::move_called == 2);
+			REQUIRE(T1::move_called <= 2);
+			REQUIRE(T1::move_assign_called == 0);
 			REQUIRE(v1.value().value == 42);
 			REQUIRE(v2.error() == 100);
 		} else {
-			static_assert(std::is_swappable_v<V>);
-			static_assert(is_std_swappable_v<V>);
-			static_assert(!is_non_member_swappable_v<V>);
-			static_assert(!is_member_swappable_v<V>);
+			REQUIRE(std::is_swappable_v<V>);
+			REQUIRE(is_std_swappable_v<V>);
+			REQUIRE(!is_non_member_swappable_v<V>);
+			REQUIRE(!is_member_swappable_v<V>);
 		}
 	}
 	{
 		using T1 = ThrowingTypeWithNothrowSwap;
 		using T2 = NonThrowingNonNoexceptType;
 		using V = tim::Result<T1, T2>;
-		if constexpr(std::is_nothrow_move_constructible_v<T1> || std::is_nothrow_move_constructible_v<T2>) {
-			static_assert(!std::is_swappable_v<V>);
-			static_assert(!is_std_swappable_v<V>);
-			static_assert(is_non_member_swappable_v<V>);
-			static_assert(is_member_swappable_v<V>);
-			T1::reset();
-			T2::reset();
-			V v1(tim::in_place, 42);
-			V v2(tim::in_place_error, 100);
-			try {
-				v1.swap(v2);
-				REQUIRE(false);
-			} catch (int) {
-			}
-			REQUIRE(T1::swap_called == 0);
-			REQUIRE(T1::move_called == 1); // throws
-			REQUIRE(T1::move_assign_called == 0);
-			REQUIRE(T2::move_called == 1);
-			REQUIRE(T2::move_called <= 1);
-			REQUIRE(v1.value().value == 42);
-			REQUIRE(v2.error().value == 100);
-		} else {
-			static_assert(std::is_swappable_v<V>);
-			static_assert(is_std_swappable_v<V>);
-			static_assert(!is_non_member_swappable_v<V>);
-			static_assert(!is_member_swappable_v<V>);
-		}
+		static_assert(!std::is_move_assignable_v<V>);
+		static_assert(!std::is_swappable_v<V>);
+		static_assert(!is_std_swappable_v<V>);
+		static_assert(!is_non_member_swappable_v<V>);
+		static_assert(!is_member_swappable_v<V>);
+		
 	}
 	{
 		using T1 = NonThrowingNonNoexceptType;
 		using T2 = ThrowingTypeWithNothrowSwap;
 		using V = tim::Result<T1, T2>;
 		if constexpr(std::is_nothrow_move_constructible_v<T1> || std::is_nothrow_move_constructible_v<T2>) {
-			static_assert(!std::is_swappable_v<V>);
-			static_assert(!is_std_swappable_v<V>);
-			static_assert(is_non_member_swappable_v<V>);
-			static_assert(is_member_swappable_v<V>);
+			REQUIRE(std::is_swappable_v<V>);
+			REQUIRE(is_std_swappable_v<V>);
+			REQUIRE(is_non_member_swappable_v<V>);
+			REQUIRE(is_member_swappable_v<V>);
 			T1::reset();
 			T2::reset();
 			V v1(tim::in_place, 42);
@@ -629,10 +608,10 @@ void test_swap_different_alternatives() {
 			REQUIRE(v1.value().value == 42);
 			REQUIRE(v2.error().value == 100);
 		} else {
-			static_assert(std::is_swappable_v<V>);
-			static_assert(is_std_swappable_v<V>);
-			static_assert(!is_non_member_swappable_v<V>);
-			static_assert(!is_member_swappable_v<V>);
+			REQUIRE(std::is_swappable_v<V>);
+			REQUIRE(is_std_swappable_v<V>);
+			REQUIRE(!is_non_member_swappable_v<V>);
+			REQUIRE(!is_member_swappable_v<V>);
 		}
 	}
 	{
@@ -640,10 +619,10 @@ void test_swap_different_alternatives() {
 		using T2 = NonThrowingNonNoexceptType;
 		using V = tim::Result<T1, T2>;
 		if constexpr(std::is_nothrow_move_constructible_v<T1> || std::is_nothrow_move_constructible_v<T2>) {
-			static_assert(!std::is_swappable_v<V>);
-			static_assert(!is_std_swappable_v<V>);
-			static_assert(is_non_member_swappable_v<V>);
-			static_assert(is_member_swappable_v<V>);
+			REQUIRE(std::is_swappable_v<V>);
+			REQUIRE(is_std_swappable_v<V>);
+			REQUIRE(is_non_member_swappable_v<V>);
+			REQUIRE(is_member_swappable_v<V>);
 			T2::reset();
 			V v1(tim::in_place, 42);
 			V v2(tim::in_place_error, 100);
@@ -653,10 +632,10 @@ void test_swap_different_alternatives() {
 			REQUIRE(v2.value().value == 42);
 			REQUIRE(v2.value().move_count == 1);
 		} else {
-			static_assert(std::is_swappable_v<V>);
-			static_assert(is_std_swappable_v<V>);
-			static_assert(!is_non_member_swappable_v<V>);
-			static_assert(!is_member_swappable_v<V>);
+			REQUIRE(std::is_swappable_v<V>);
+			REQUIRE(is_std_swappable_v<V>);
+			REQUIRE(!is_non_member_swappable_v<V>);
+			REQUIRE(!is_member_swappable_v<V>);
 		}
 	}
 	{
@@ -664,10 +643,10 @@ void test_swap_different_alternatives() {
 		using T2 = ThrowsOnSecondMove;
 		using V = tim::Result<T1, T2>;
 		if constexpr(std::is_nothrow_move_constructible_v<T1> || std::is_nothrow_move_constructible_v<T2>) {
-			static_assert(!std::is_swappable_v<V>);
-			static_assert(!is_std_swappable_v<V>);
-			static_assert(is_non_member_swappable_v<V>);
-			static_assert(is_member_swappable_v<V>);
+			REQUIRE(std::is_swappable_v<V>);
+			REQUIRE(is_std_swappable_v<V>);
+			REQUIRE(is_non_member_swappable_v<V>);
+			REQUIRE(is_member_swappable_v<V>);
 			T1::reset();
 			V v1(tim::in_place, 42);
 			V v2(tim::in_place_error, 100);
@@ -682,10 +661,10 @@ void test_swap_different_alternatives() {
 			REQUIRE(!v2.has_value());
 			REQUIRE(v2.error().value == 100);
 		} else {
-			static_assert(std::is_swappable_v<V>);
-			static_assert(is_std_swappable_v<V>);
-			static_assert(!is_non_member_swappable_v<V>);
-			static_assert(!is_member_swappable_v<V>);
+			REQUIRE(std::is_swappable_v<V>);
+			REQUIRE(is_std_swappable_v<V>);
+			REQUIRE(!is_non_member_swappable_v<V>);
+			REQUIRE(!is_member_swappable_v<V>);
 		}
 	}
 	{
@@ -694,10 +673,10 @@ void test_swap_different_alternatives() {
 		using T2 = NothrowMoveable;
 		using V = tim::Result<T1, T2>;
 		if constexpr(std::is_nothrow_move_constructible_v<T1> || std::is_nothrow_move_constructible_v<T2>) {
-			static_assert(!std::is_swappable_v<V>);
-			static_assert(!is_std_swappable_v<V>);
-			static_assert(is_non_member_swappable_v<V>);
-			static_assert(is_member_swappable_v<V>);
+			REQUIRE(std::is_swappable_v<V>);
+			REQUIRE(is_std_swappable_v<V>);
+			REQUIRE(is_non_member_swappable_v<V>);
+			REQUIRE(is_member_swappable_v<V>);
 			T1::reset();
 			T2::reset();
 			V v1(tim::in_place, 42);
@@ -732,10 +711,10 @@ void test_swap_different_alternatives() {
 			REQUIRE(v1.value().value == 42);
 			REQUIRE(v2.error().value == 100);
 		} else {
-			static_assert(std::is_swappable_v<V>);
-			static_assert(is_std_swappable_v<V>);
-			static_assert(!is_non_member_swappable_v<V>);
-			static_assert(!is_member_swappable_v<V>);
+			REQUIRE(std::is_swappable_v<V>);
+			REQUIRE(is_std_swappable_v<V>);
+			REQUIRE(!is_non_member_swappable_v<V>);
+			REQUIRE(!is_member_swappable_v<V>);
 		}
 	}
 }
