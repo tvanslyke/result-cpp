@@ -1441,7 +1441,6 @@ TEST_CASE("Conv assignment") {
 	static_assert(std::is_assignable<tim::Result<bool, int>, std::true_type>::value, "");
 	static_assert(!std::is_assignable<tim::Result<bool, int>, ExplicitBool>::value, "");
 	static_assert(!std::is_assignable<tim::Result<bool, int>, std::unique_ptr<char> >::value, "");
-	static_assert(!std::is_assignable<tim::Result<bool, int>, decltype(nullptr)>::value, "");
 }
 
 } /* namespace conv_assignment */

@@ -1,6 +1,5 @@
 #include "catch.hpp"
 #include "tim/result/Result.hpp"
-
 struct no_throw {
 	no_throw(std::string i) : i(i) {}
 	std::string i;
@@ -245,32 +244,64 @@ namespace swap_test_namespace {
 
 namespace detail {
 
-template <class T>
-struct Tag {};
+template <
+	class T,
+	std::enable_if_t<
+		std::is_same_v<decltype(std::declval<T&>().swap(std::declval<T&>())), void>
+		&& std::is_same_v<decltype(&T::template swap<T>), void (T::*)(T&)>
+		&& std::is_invocable_r_v<void, decltype(&T::template swap<T>), T&, T&>,
+		bool
+	> = false
+>
+static constexpr std::true_type is_member_template_swappable_helper(int, int) { return std::true_type{}; }
 
-template <class T, class = decltype(std::declval<T&>().swap(std::declval<T&>()))>
-static constexpr std::true_type  is_member_swappable_helper(Tag<T>, int) { return std::true_type{}; }
+template <class T>
+static constexpr std::false_type is_member_template_swappable_helper(int, ...) { return std::false_type{}; }
+
+template <
+	class T,
+	std::enable_if_t<
+		std::is_same_v<decltype(std::declval<T&>().swap(std::declval<T&>())), void>
+		&& std::is_same_v<decltype(&T::swap), void (T::*)(T&)>
+		&& std::is_invocable_r_v<void, decltype(&T::swap), T&, T&>,
+		bool
+	> = false
+>
+static constexpr std::true_type is_member_non_template_swappable_helper(int, int) { return std::true_type{}; }
 
 template <class T>
-static constexpr std::false_type is_member_swappable_helper(Tag<T>, ...) { return std::false_type{}; }
+static constexpr std::false_type is_member_non_template_swappable_helper(int, ...) { return std::false_type{}; }
+
+template <class T>
+static constexpr auto is_member_swappable_helper(int, int)
+	-> std::bool_constant<
+		is_member_template_swappable_helper<T>(0, 0)
+		|| is_member_non_template_swappable_helper<T>(0, 0)
+	>
+{
+	return std::bool_constant<
+		is_member_template_swappable_helper<T>(0, 0)
+		|| is_member_non_template_swappable_helper<T>(0, 0)
+	>{};
+}
 
 template <class T, class = decltype(swap(std::declval<T&>(), std::declval<T&>()))>
-static constexpr std::true_type  is_non_member_swappable_helper(Tag<T>, int) { return std::true_type{}; }
+static constexpr std::true_type  is_non_member_swappable_helper(int, int) { return std::true_type{}; }
 
 template <class T>
-static constexpr std::false_type is_non_member_swappable_helper(Tag<T>, ...) { return std::false_type{}; }
+static constexpr std::false_type is_non_member_swappable_helper(int, ...) { return std::false_type{}; }
 
 template <class T, class = decltype(std::swap(std::declval<T&>(), std::declval<T&>()))>
-static constexpr std::true_type  is_std_swappable_helper(Tag<T>, int) { return std::true_type{}; }
+static constexpr std::true_type  is_std_swappable_helper(int, int) { return std::true_type{}; }
 
 template <class T>
-static constexpr std::false_type is_std_swappable_helper(Tag<T>, ...) { return std::false_type{}; }
+static constexpr std::false_type is_std_swappable_helper(int, ...) { return std::false_type{}; }
 
 } /* namespace detail */ 
 
 template <class T>
 struct is_member_swappable:
-	decltype(detail::is_member_swappable_helper(detail::Tag<T>{}, 0))
+	decltype(detail::is_member_swappable_helper<T>(0, 0))
 {
 
 };
@@ -280,23 +311,23 @@ inline constexpr bool is_member_swappable_v = is_member_swappable<T>::value;
 
 template <class T>
 struct is_non_member_swappable:
-	decltype(detail::is_non_member_swappable_helper(detail::Tag<T>{}, 0))
+	decltype(detail::is_non_member_swappable_helper<T>(0, 0))
 {
 
 };
 
 template <class T>
-inline constexpr bool is_non_member_swappable_v = is_member_swappable<T>::value;
+inline constexpr bool is_non_member_swappable_v = is_non_member_swappable<T>::value;
 
 template <class T>
 struct is_std_swappable:
-	decltype(detail::is_std_swappable_helper(detail::Tag<T>{}, 0))
+	decltype(detail::is_std_swappable_helper<T>(0, 0))
 {
 
 };
 
 template <class T>
-inline constexpr bool is_std_swappable_v = is_member_swappable<T>::value;
+inline constexpr bool is_std_swappable_v = is_std_swappable<T>::value;
 
 struct NotSwappable {};
 void swap(NotSwappable &, NotSwappable &) = delete;
@@ -535,32 +566,12 @@ TEST_CASE("Swap same value") {
 	}
 }
 
-template <
-	class T,
-	class E,
-	bool StdSwappable,
-	bool SelfSwappable,
->
-constexpr void check_swap_sfinae() {
-	using R1 = Result<T, E>;
-	using R2 = Result<E, T>;
-	static_assert(is_std_swappable_v<R1> == StdSwappable);
-	static_assert(is_non_member_swappable_v<R1> == SelfSwappable);
-	static_assert(is_member_swappable_v<R1> == SelfSwappable);
-	static_assert(std::is_swappable_v<R1> == (is_std_swappable_v<R1>||is_non_member_swappable_v<R1>));
-	static_assert(is_std_swappable_v<R2> == StdSwappable);
-	static_assert(is_non_member_swappable_v<R2> == SelfSwappable);
-	static_assert(is_member_swappable_v<R2> == SelfSwappable);
-	static_assert(std::is_swappable_v<R2> == (is_std_swappable_v<R2>||is_non_member_swappable_v<R2>));
-}
-
-
 void test_swap_different_alternatives() {
 	{
 		using T1 = NothrowMoveCtorWithThrowingSwap;
 		using T2 = int;
 		using V = tim::Result<T1, T2>;
-		if constexpr(std::is_nothrow_move_constructible_v<T1> || std::is_nothrow_move_constructible_v<T2>) {
+		if constexpr(is_member_swappable_v<V>) {
 			REQUIRE(std::is_swappable_v<V>);
 			REQUIRE(is_std_swappable_v<V>);
 			REQUIRE(is_non_member_swappable_v<V>);
@@ -593,107 +604,11 @@ void test_swap_different_alternatives() {
 		}
 	}
 	{
-		using T1 = ThrowingTypeWithNothrowSwap;
-		using T2 = NonThrowingNonNoexceptType;
-		using V = tim::Result<T1, T2>;
-		static_assert(!std::is_move_assignable_v<V>);
-		static_assert(!std::is_swappable_v<V>);
-		static_assert(!is_std_swappable_v<V>);
-		static_assert(!is_non_member_swappable_v<V>);
-		static_assert(!is_member_swappable_v<V>);
-		
-	}
-	{
-		using T1 = NonThrowingNonNoexceptType;
-		using T2 = ThrowingTypeWithNothrowSwap;
-		using V = tim::Result<T1, T2>;
-		if constexpr(std::is_nothrow_move_constructible_v<T1> || std::is_nothrow_move_constructible_v<T2>) {
-			REQUIRE(std::is_swappable_v<V>);
-			REQUIRE(is_std_swappable_v<V>);
-			REQUIRE(is_non_member_swappable_v<V>);
-			REQUIRE(is_member_swappable_v<V>);
-			T1::reset();
-			T2::reset();
-			V v1(tim::in_place, 42);
-			V v2(tim::in_place_error, 100);
-			try {
-				v1.swap(v2);
-				REQUIRE(false);
-			} catch (int) {
-			}
-			REQUIRE(T1::move_called == 0);
-			REQUIRE(T1::move_called <= 1);
-			REQUIRE(T2::swap_called == 0);
-			REQUIRE(T2::move_called == 1); // throws
-			REQUIRE(T2::move_assign_called == 0);
-			REQUIRE(v1.value().value == 42);
-			REQUIRE(v2.error().value == 100);
-		} else {
-			REQUIRE(std::is_swappable_v<V>);
-			REQUIRE(is_std_swappable_v<V>);
-			REQUIRE(!is_non_member_swappable_v<V>);
-			REQUIRE(!is_member_swappable_v<V>);
-		}
-	}
-	{
-		using T1 = ThrowsOnSecondMove;
-		using T2 = NonThrowingNonNoexceptType;
-		using V = tim::Result<T1, T2>;
-		if constexpr(std::is_nothrow_move_constructible_v<T1> || std::is_nothrow_move_constructible_v<T2>) {
-			REQUIRE(std::is_swappable_v<V>);
-			REQUIRE(is_std_swappable_v<V>);
-			REQUIRE(is_non_member_swappable_v<V>);
-			REQUIRE(is_member_swappable_v<V>);
-			T2::reset();
-			V v1(tim::in_place, 42);
-			V v2(tim::in_place_error, 100);
-			v1.swap(v2);
-			REQUIRE(T2::move_called == 2);
-			REQUIRE(v1.error().value == 100);
-			REQUIRE(v2.value().value == 42);
-			REQUIRE(v2.value().move_count == 1);
-		} else {
-			REQUIRE(std::is_swappable_v<V>);
-			REQUIRE(is_std_swappable_v<V>);
-			REQUIRE(!is_non_member_swappable_v<V>);
-			REQUIRE(!is_member_swappable_v<V>);
-		}
-	}
-	{
-		using T1 = NonThrowingNonNoexceptType;
-		using T2 = ThrowsOnSecondMove;
-		using V = tim::Result<T1, T2>;
-		if constexpr(std::is_nothrow_move_constructible_v<T1> || std::is_nothrow_move_constructible_v<T2>) {
-			REQUIRE(std::is_swappable_v<V>);
-			REQUIRE(is_std_swappable_v<V>);
-			REQUIRE(is_non_member_swappable_v<V>);
-			REQUIRE(is_member_swappable_v<V>);
-			T1::reset();
-			V v1(tim::in_place, 42);
-			V v2(tim::in_place_error, 100);
-			try {
-				v1.swap(v2);
-				REQUIRE(false);
-			} catch (int) {
-			}
-			REQUIRE(T1::move_called == 1);
-			REQUIRE(v1.has_value());
-			REQUIRE(v1.value().value == 42);
-			REQUIRE(!v2.has_value());
-			REQUIRE(v2.error().value == 100);
-		} else {
-			REQUIRE(std::is_swappable_v<V>);
-			REQUIRE(is_std_swappable_v<V>);
-			REQUIRE(!is_non_member_swappable_v<V>);
-			REQUIRE(!is_member_swappable_v<V>);
-		}
-	}
-	{
 
 		using T1 = ThrowingTypeWithNothrowSwap;
 		using T2 = NothrowMoveable;
 		using V = tim::Result<T1, T2>;
-		if constexpr(std::is_nothrow_move_constructible_v<T1> || std::is_nothrow_move_constructible_v<T2>) {
+		if constexpr(is_member_swappable_v<V>) {
 			REQUIRE(std::is_swappable_v<V>);
 			REQUIRE(is_std_swappable_v<V>);
 			REQUIRE(is_non_member_swappable_v<V>);
@@ -969,21 +884,102 @@ using Type = typename get_type_impl<
 	SwapKind
 >::type;
 
+
+template <std::size_t Index>
+struct kind_encoding {
+	static constexpr Kind to_kind(std::size_t index) {
+		switch(static_cast<Kind>(index)) {
+		default: REQUIRE(false);
+		case 0: return Kind::Deleted;
+		case 1: return Kind::Nothrow;
+		case 2: return Kind::Throwing;
+		}
+	}
+	static constexpr Kind move_ctor_kind() {
+		return to_kind(Index % 3);
+	}
+	static constexpr Kind copy_ctor_kind() {
+		return to_kind((Index / 3) % 3);
+	}
+	static constexpr Kind move_asgn_kind() {
+		return to_kind((Index / 9) % 3);
+	}
+	static constexpr Kind copy_asgn_kind() {
+		return to_kind((Index / 27) % 3);
+	}
+	static constexpr Kind swap_kind() {
+		return to_kind((Index / 81) % 3);
+	}
+	using type = Type<
+		move_ctor_kind(),
+		copy_ctor_kind(),
+		move_asgn_kind(),
+		copy_asgn_kind(),
+		swap_kind()
+	>;
+};
+
+template <std::size_t I, std::size_t J>
+static constexpr void test_swap_types() {
+	if constexpr(I == 242 && J == 242) {
+		return;
+	} else {
+		using T = kind_encoding<I>::type;
+		using E = kind_encoding<J>::type;
+		using R = tim::Result<T, E>;
+		constexpr bool has_swap = std::conjunction_v<
+			std::is_swappable<T>,
+			std::is_swappable<E>,
+			std::is_move_constructible<T>,
+			std::is_move_constructible<E>,
+			std::disjunction<
+				std::is_nothrow_move_constructible<T>,
+				std::is_nothrow_move_constructible<E>
+			>
+		>;
+		constexpr bool has_nothrow_swap = std::conjunction_v<
+			std::is_nothrow_swappable<T>,
+			std::is_nothrow_swappable<E>,
+			std::is_nothrow_move_constructible<T>,
+			std::is_nothrow_move_constructible<E>
+		>;
+		constexpr bool has_move_assign = std::conjunction_v<
+			std::is_move_assignable<T>,
+			std::is_move_constructible<T>,
+			std::is_move_assignable<E>,
+			std::is_move_constructible<E>,
+			std::disjunction<
+				std::is_nothrow_move_constructible<T>,
+				std::is_nothrow_move_constructible<E>
+			>
+		>;
+		constexpr bool has_move_constructor = std::conjunction_v<
+			std::is_move_constructible<T>,
+			std::is_move_constructible<E>
+		>;
+		static_assert(is_member_swappable_v<R> == has_swap);
+		static_assert(is_non_member_swappable_v<R> == has_swap);
+		static_assert(std::is_move_assignable_v<R> == has_move_assign);
+		static_assert(std::is_move_constructible_v<R> == has_move_constructor);
+		static_assert(std::is_swappable_v<R> == (has_move_constructor && has_move_assign));
+		static_assert(std::is_swappable_v<R> == (has_move_constructor && has_move_assign));
+		static_assert(std::conditional_t<
+			is_member_swappable_v<R>,
+			std::bool_constant<(std::is_nothrow_swappable_v<R> == has_nothrow_swap)>,
+			std::true_type
+		>::value);
+		if constexpr(J == 242) {
+			return test_swap_types<I + 1, 0>();
+		} else {
+			return test_swap_types<I, J + 1>();
+		}
+	}
+}
+
 } /* namespace types */
 
 void test_swap_sfinae() {
-	constexpr types::Kind D = sfinae::Kind::Deleted;
-	constexpr types::Kind T = sfinae::Kind::Throwing;
-	constexpr types::Kind N = sfinae::Kind::Nothrow;
-	using types::Type;
-	check_swap_sfinae<int, NotSwappable, true, true, false>();
-	check_swap_sfinae<int, NotCopyable, true, true, true>();
-	check_swap_sfinae<int, NotCopyableWithSwap, true, true, true>();
-	check_swap_sfinae<int, NotMoveAssignable, true, true, true>();
-	
-	// <Move Ctor, Copy Ctor, Move Assign, Copy Assign, Swap>
-	sfinae::check_swap_sfinae<Type<N, N, N, N, N>, Type<N, N, N, N, N>, true, true, true>();
-	sfinae::check_swap_sfinae<Type<N, N, N, N, D>, Type<N, N, N, N, D>, true, true, >();
+	test_swap_types<0, 0>();
 }
 
 void test_swap_noexcept() {

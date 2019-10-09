@@ -2505,7 +2505,7 @@ public:
 		class Other = Result,
 		std::enable_if_t<
 			std::conjunction_v<
-				std::is_same<Other, Result>,
+				std::is_same<std::decay_t<Other>, Result>,
 				std::is_move_constructible<T>,
 				std::is_swappable<T>,
 				std::is_move_constructible<E>,
@@ -2518,14 +2518,14 @@ public:
 			bool
 		> = false
 	>
-	constexpr void swap(Other& other) noexcept(
+	constexpr auto swap(Other& other) noexcept(
 		std::conjunction_v<
 			std::is_nothrow_move_constructible<T>,
 			std::is_nothrow_move_constructible<E>,
 			std::is_nothrow_swappable<T>,
 			std::is_nothrow_swappable<E>
 		>
-	) {
+	) -> std::enable_if_t<std::is_same_v<Other, Result>, void> {
 		if(this->has_value()) {
 			if(other.has_value()) {
 				this->swap_case(other, std::true_type{}, std::true_type{});
@@ -2541,7 +2541,7 @@ public:
 			}
 		}
 	}
-
+	
 	constexpr bool has_value() const {
 		return this->data_.has_value();
 	}
@@ -4781,24 +4781,68 @@ template <
 	class T,
 	class E,
 	std::enable_if_t<
-		std::conjunction_v<
-			std::disjunction<
-				detail::is_cv_void<T>,
-				std::is_move_constructible<T>
-			>,
-			std::is_swappable<T>,
-			std::is_move_constructible<E>,
-			std::is_swappable<E>,
-			std::disjunction<
-				detail::is_cv_void<T>,
-				std::is_nothrow_move_constructible<T>,
-				std::is_nothrow_move_constructible<E>
-			>
-		>,
+		!detail::is_cv_void_v<T>
+		&& std::is_move_constructible_v<T>
+		&& std::is_swappable_v<T>
+		&& std::is_move_constructible_v<E>
+		&& std::is_swappable_v<E>
+		&& (std::is_nothrow_move_constructible_v<T> || std::is_nothrow_move_constructible_v<E>),
 		bool
 	> = false
 >
 constexpr void swap(Result<T, E>& lhs, Result<T, E>& rhs) noexcept(noexcept(lhs.swap(rhs))) {
+	return lhs.swap(rhs);
+}
+
+template <
+	class T,
+	class E,
+	std::enable_if_t<
+		std::is_move_constructible_v<E>
+		&& std::is_swappable_v<E>,
+		bool
+	> = false
+>
+constexpr void swap(Result<void, E>& lhs, Result<void, E>& rhs) noexcept(noexcept(lhs.swap(rhs))) {
+	return lhs.swap(rhs);
+}
+
+template <
+	class T,
+	class E,
+	std::enable_if_t<
+		std::is_move_constructible_v<E>
+		&& std::is_swappable_v<E>,
+		bool
+	> = false
+>
+constexpr void swap(Result<const void, E>& lhs, Result<const void, E>& rhs) noexcept(noexcept(lhs.swap(rhs))) {
+	return lhs.swap(rhs);
+}
+
+template <
+	class T,
+	class E,
+	std::enable_if_t<
+		std::is_move_constructible_v<E>
+		&& std::is_swappable_v<E>,
+		bool
+	> = false
+>
+constexpr void swap(Result<volatile void, E>& lhs, Result<volatile void, E>& rhs) noexcept(noexcept(lhs.swap(rhs))) {
+	return lhs.swap(rhs);
+}
+
+template <
+	class T,
+	class E,
+	std::enable_if_t<
+		std::is_move_constructible_v<E>
+		&& std::is_swappable_v<E>,
+		bool
+	> = false
+>
+constexpr void swap(Result<const volatile void, E>& lhs, Result<const volatile void, E>& rhs) noexcept(noexcept(lhs.swap(rhs))) {
 	return lhs.swap(rhs);
 }
 
