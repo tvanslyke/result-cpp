@@ -895,25 +895,63 @@ struct get_type_impl {
 		CopyAsgnKind,
 		SwapKind
 	>;
+
 	template <
-		template <class> class EnabledTrait,
-		template <class> class NothrowTrait
+		Kind K,
+		template <class> class IsEnabled,
+		template <class> class IsNothrow
 	>
-	using check_trait_type =
-	static_assert(
+	using check_trait_type = std::conditional_t<
+		(K == Kind::Deleted),
+		std::negation<IsEnabled<type>>,
 		std::conditional_t<
-			(MoveCtorKind == Kind::Deleted),
-			std::negation<std::is_move_constructible<type>>,
-			std::conditional_t<
-				(MoveCtorKind == Kind::Throwing),
-				std::conjunction<
-					std::is_move_constructible<type>,
-					std::negation<std::is_nothrow_move_constructible<type>>
-				>
-			
-	std::conditional_t<(CopyCtorKind != Kind::Deleted), Dummy, NotCopyConstructible>,
-	std::conditional_t<(MoveAsgnKind != Kind::Deleted), Dummy, NotMoveAssignable>,
-	std::conditional_t<(CopyAsgnKind != Kind::Deleted), Dummy, NotCopyAssignable>
+			(K == Kind::Throwing),
+			std::conjunction<
+				IsEnabled<type>,
+				std::negation<IsNothrow<type>>
+			>,
+			std::conjunction<
+				IsEnabled<type>,
+				IsNothrow<type>
+			>
+		>
+	>;
+		
+	static_assert(
+		check_type_trait<
+			MoveCtorKind,
+			std::is_move_constructible,
+			std::is_nothrow_move_construtible
+		>
+	);
+	static_assert(
+		check_type_trait<
+			CopyCtorKind,
+			std::is_copy_constructible,
+			std::is_nothrow_copy_construtible
+		>
+	);
+	static_assert(
+		check_type_trait<
+			MoveAsgnKind,
+			std::is_move_assignable,
+			std::is_nothrow_move_construtible
+		>
+	);
+	static_assert(
+		check_type_trait<
+			CopyAsgnKind,
+			std::is_copy_assignable,
+			std::is_nothrow_copy_construtible
+		>
+	);
+	static_assert(
+		check_type_trait<
+			SwapKind,
+			std::swappable,
+			std::is_nothrow_swappable
+		>
+	);
 };
 
 template <
@@ -923,13 +961,13 @@ template <
 	Kind CopyAsgnKind,
 	Kind SwapKind
 >
-using Type = TypeImpl<
+using Type = typename get_type_impl<
 	MoveCtorKind,
 	CopyCtorKind,
 	MoveAsgnKind,
 	CopyAsgnKind,
 	SwapKind
->;
+>::type;
 
 } /* namespace types */
 
