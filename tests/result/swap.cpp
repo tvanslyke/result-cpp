@@ -15,13 +15,18 @@ struct canthrow_move {
 	std::string i;
 };
 
+struct test_exception: std::exception {
+	~test_exception() final = default;
+	const char* what() const noexcept final { return "test exception"; }
+};
+
 bool should_throw = false;
 struct willthrow_move {
 	willthrow_move(std::string i) : i(i) {}
 	willthrow_move(willthrow_move const &) = default;
 	willthrow_move(willthrow_move &&other) : i(other.i) {
 		if (should_throw)
-			throw 0;
+			throw test_exception();
 	}
 	willthrow_move &operator=(willthrow_move &&) = default;
 	std::string i;
@@ -329,7 +334,7 @@ void swap(NotMoveAssignableWithSwap &, NotMoveAssignableWithSwap &) noexcept {}
 template <bool Throws> void do_throw() {}
 
 template <> void do_throw<true>() {
-	throw std::runtime_error("42");
+	throw test_exception();
 }
 
 template <bool NT_Copy, bool NT_Move, bool NT_CopyAssign, bool NT_MoveAssign,
@@ -491,7 +496,7 @@ TEST_CASE("Swap same value") {
 		try {
 			v1.swap(v2);
 			REQUIRE(false);
-		} catch (int) {
+		} catch(const test_exception&) {
 		}
 		REQUIRE(T::swap_called == 1);
 		REQUIRE(T::move_called == 0);
@@ -508,12 +513,11 @@ TEST_CASE("Swap same value") {
 		try {
 			v1.swap(v2);
 			REQUIRE(false);
-		} catch (int) {
+		} catch(const test_exception&) {
 		}
 		REQUIRE(T::move_called == 1); // call threw
 		REQUIRE(T::move_assign_called == 0);
-		REQUIRE(v1.value().value ==
-					 42); // throw happened before v1 was moved from
+		REQUIRE(v1.value().value == 42); // throw happened before v1 was moved from
 		REQUIRE(v2.value().value == 100);
 	}
 	{
@@ -525,7 +529,7 @@ TEST_CASE("Swap same value") {
 		try {
 			v1.swap(v2);
 			REQUIRE(false);
-		} catch (int) {
+		} catch (const test_exception&) {
 		}
 		REQUIRE(T::move_called == 1);
 		REQUIRE(T::move_assign_called == 1);	// call threw and didn't complete
@@ -603,7 +607,7 @@ TEST_CASE("Swap Different Values") {
 		try {
 			v1.swap(v2);
 			REQUIRE(false);
-		} catch (int) {
+		} catch(const test_exception&) {
 		}
 		REQUIRE(T1::swap_called == 0);
 		REQUIRE(T1::move_called == 1);
@@ -619,7 +623,7 @@ TEST_CASE("Swap Different Values") {
 		try {
 			v2.swap(v1);
 			REQUIRE(false);
-		} catch (int) {
+		} catch(const test_exception&) {
 		}
 		REQUIRE(T1::swap_called == 0);
 		REQUIRE(T1::move_called == 1);
@@ -646,597 +650,179 @@ template <class Var> constexpr bool has_swap_member() {
 	return has_swap_member_imp<Var>(0);
 }
 
-namespace types {
-
-enum class Kind {
-	Deleted,
-	Nothrow,
-	Throwing
-};
-
-template <class T, bool Nothrow>
-struct Swappable: T {
-	Swappable() = default;
-	Swappable(Swappable&&) noexcept(std::is_nothrow_move_constructible_v<T>) = default;
-	Swappable(const Swappable&) noexcept(std::is_nothrow_move_constructible_v<T>) = default;
-	Swappable& operator=(const Swappable&) noexcept(std::is_nothrow_copy_assignable_v<T>) = default;
-	Swappable& operator=(Swappable&&) noexcept(std::is_nothrow_move_assignable_v<T>) = default;
-};
-
-template <class T, bool NT>
-constexpr void swap(Swappable<T, NT>&, Swappable<T, NT>&) noexcept(NT) {}
-
-// Move Ctor
-template <class Base>
-struct NotMoveConstructible: Base {
-	NotMoveConstructible() = default;
-	NotMoveConstructible(NotMoveConstructible&&) = delete;
-	NotMoveConstructible(const NotMoveConstructible&) = default;
-	NotMoveConstructible& operator=(NotMoveConstructible&&) = default;
-	NotMoveConstructible& operator=(const NotMoveConstructible&) = default;
-};
-
-template <class Base>
-struct ThrowingMoveConstructible: Base {
-	ThrowingMoveConstructible() = default;
-	ThrowingMoveConstructible(ThrowingMoveConstructible&&) noexcept(false) {}
-	ThrowingMoveConstructible(const ThrowingMoveConstructible&) = default;
-	ThrowingMoveConstructible& operator=(ThrowingMoveConstructible&&) = default;
-	ThrowingMoveConstructible& operator=(const ThrowingMoveConstructible&) = default;
-};
-
-template <class Base>
-struct NothrowMoveConstructible: Base {
-	NothrowMoveConstructible() = default;
-	NothrowMoveConstructible(NothrowMoveConstructible&&) noexcept {}
-	NothrowMoveConstructible(const NothrowMoveConstructible&) = default;
-	NothrowMoveConstructible& operator=(NothrowMoveConstructible&&) = default;
-	NothrowMoveConstructible& operator=(const NothrowMoveConstructible&) = default;
-};
-
-
-// Copy Ctor
-template <class Base>
-struct NotCopyConstructible: Base {
-	NotCopyConstructible() = default;
-	NotCopyConstructible(NotCopyConstructible&&) = default;
-	NotCopyConstructible(const NotCopyConstructible&) = delete; 
-	NotCopyConstructible& operator=(NotCopyConstructible&&) = default;
-	NotCopyConstructible& operator=(const NotCopyConstructible&) = default;
-};
-
-template <class Base>
-struct ThrowingCopyConstructible: Base {
-	ThrowingCopyConstructible() = default;
-	ThrowingCopyConstructible(ThrowingCopyConstructible&&) = default;
-	ThrowingCopyConstructible(const ThrowingCopyConstructible&) noexcept(false) {}
-	ThrowingCopyConstructible& operator=(ThrowingCopyConstructible&&) = default;
-	ThrowingCopyConstructible& operator=(const ThrowingCopyConstructible&) = default;
-};
-
-template <class Base>
-struct NothrowCopyConstructible: Base {
-	NothrowCopyConstructible() = default;
-	NothrowCopyConstructible(NothrowCopyConstructible&&) = default;
-	NothrowCopyConstructible(const NothrowCopyConstructible&) noexcept {}
-	NothrowCopyConstructible& operator=(NothrowCopyConstructible&&) = default;
-	NothrowCopyConstructible& operator=(const NothrowCopyConstructible&) = default;
-};
-
-
-// Move Asgn
-template <class Base>
-struct NotMoveAssignable: Base {
-	NotMoveAssignable() = default;
-	NotMoveAssignable(NotMoveAssignable&&) = default;
-	NotMoveAssignable(const NotMoveAssignable&) = default;
-	NotMoveAssignable& operator=(NotMoveAssignable&&) = delete;
-	NotMoveAssignable& operator=(const NotMoveAssignable&) = default;
-};
-
-template <class Base>
-struct ThrowingMoveAssignable: Base {
-	ThrowingMoveAssignable() = default;
-	ThrowingMoveAssignable(ThrowingMoveAssignable&&)  = default;
-	ThrowingMoveAssignable(const ThrowingMoveAssignable&) = default;
-	ThrowingMoveAssignable& operator=(ThrowingMoveAssignable&&) noexcept(false) { return *this; }
-	ThrowingMoveAssignable& operator=(const ThrowingMoveAssignable&) = default;
-};
-
-template <class Base>
-struct NothrowMoveAssignable: Base {
-	NothrowMoveAssignable() = default;
-	NothrowMoveAssignable(NothrowMoveAssignable&&)  = default;
-	NothrowMoveAssignable(const NothrowMoveAssignable&) = default;
-	NothrowMoveAssignable& operator=(NothrowMoveAssignable&&) noexcept { return *this; }
-	NothrowMoveAssignable& operator=(const NothrowMoveAssignable&) = default;
-};
-
-
-// Copy Asgn
-template <class Base>
-struct NotCopyAssignable: Base {
-	NotCopyAssignable() = default;
-	NotCopyAssignable(NotCopyAssignable&&)  = default;
-	NotCopyAssignable(const NotCopyAssignable&) = default; 
-	NotCopyAssignable& operator=(NotCopyAssignable&&) = default;
-	NotCopyAssignable& operator=(const NotCopyAssignable&) = delete;
-};
-
-template <class Base>
-struct ThrowingCopyAssignable: Base {
-	ThrowingCopyAssignable() = default;
-	ThrowingCopyAssignable(ThrowingCopyAssignable&&)  = default;
-	ThrowingCopyAssignable(const ThrowingCopyAssignable&) = default;
-	ThrowingCopyAssignable& operator=(ThrowingCopyAssignable&&) = default;
-	ThrowingCopyAssignable& operator=(const ThrowingCopyAssignable&) noexcept(false) { return *this; }
-};
-
-template <class Base>
-struct NothrowCopyAssignable: Base {
-	NothrowCopyAssignable() = default;
-	NothrowCopyAssignable(NothrowCopyAssignable&&) = default;
-	NothrowCopyAssignable(const NothrowCopyAssignable&) = default;
-	NothrowCopyAssignable& operator=(NothrowCopyAssignable&&) = default;
-	NothrowCopyAssignable& operator=(const NothrowCopyAssignable&) noexcept { return *this; }
-};
-
-template <
-	class T,
-	Kind K,
-	template <class> class Deleted,
-	template <class> class Throwing,
-	template <class> class Nothrow
->
-using MakeType = std::conditional_t<
-	(K == Kind::Deleted),
-	Deleted<T>,
-	std::conditional_t<
-		(K == Kind::Nothrow),
-		Nothrow<T>,
-		Throwing<T>
-	>
->;
-
-
-template <class T, Kind K>
-using MoveCtorType = MakeType<T, K, NotMoveConstructible, ThrowingMoveConstructible, NothrowMoveConstructible>;
-template <class T, Kind K>
-using CopyCtorType = MakeType<T, K, NotCopyConstructible, ThrowingCopyConstructible, NothrowCopyConstructible>;
-template <class T, Kind K>
-using MoveAsgnType = MakeType<T, K, NotMoveAssignable, ThrowingMoveAssignable, NothrowMoveAssignable>;
-template <class T, Kind K>
-using CopyAsgnType = MakeType<T, K, NotCopyAssignable, ThrowingCopyAssignable, NothrowCopyAssignable>;
-
-struct Dummy {};
-
-template <
-	Kind MoveCtorKind,
-	Kind CopyCtorKind,
-	Kind MoveAsgnKind,
-	Kind CopyAsgnKind,
-	Kind SwapKind
->
-struct TypeImpl;
-
-template <
-	Kind MoveCtorKind,
-	Kind CopyCtorKind,
-	Kind MoveAsgnKind,
-	Kind CopyAsgnKind,
-	Kind SwapKind
->
-struct TypeImpl:
-	CopyAsgnType<
-		MoveAsgnType<
-			CopyCtorType<
-				MoveCtorType<Dummy, MoveCtorKind>,
-				CopyCtorKind
-			>,
-			MoveAsgnKind
-		>,
-		CopyAsgnKind
-	>
-{
-	TypeImpl() {};
-	TypeImpl(TypeImpl&&) = default;
-	TypeImpl(const TypeImpl&) = default;
-	TypeImpl& operator=(TypeImpl&&) = default;
-	TypeImpl& operator=(const TypeImpl&) = default;
-};
-
-template <
-	Kind MoveCtorKind,
-	Kind CopyCtorKind,
-	Kind MoveAsgnKind,
-	Kind CopyAsgnKind,
-	Kind SwapKind,
-	std::enable_if_t<(SwapKind == Kind::Deleted), bool> = false
->
-constexpr void swap(
-	TypeImpl<MoveCtorKind, CopyCtorKind, MoveAsgnKind, CopyAsgnKind, Kind::Deleted>&,
-	TypeImpl<MoveCtorKind, CopyCtorKind, MoveAsgnKind, CopyAsgnKind, Kind::Deleted>&
-) = delete;
-
-template <
-	Kind MoveCtorKind,
-	Kind CopyCtorKind,
-	Kind MoveAsgnKind,
-	Kind CopyAsgnKind,
-	Kind SwapKind,
-	std::enable_if_t<(SwapKind == Kind::Throwing), bool> = false
->
-constexpr void swap(
-	TypeImpl<MoveCtorKind, CopyCtorKind, MoveAsgnKind, CopyAsgnKind, Kind::Deleted>&,
-	TypeImpl<MoveCtorKind, CopyCtorKind, MoveAsgnKind, CopyAsgnKind, Kind::Deleted>&
-) noexcept(false) {}
-
-template <
-	Kind MoveCtorKind,
-	Kind CopyCtorKind,
-	Kind MoveAsgnKind,
-	Kind CopyAsgnKind,
-	Kind SwapKind,
-	std::enable_if_t<(SwapKind == Kind::Nothrow), bool> = false
->
-constexpr void swap(
-	TypeImpl<MoveCtorKind, CopyCtorKind, MoveAsgnKind, CopyAsgnKind, Kind::Deleted>&,
-	TypeImpl<MoveCtorKind, CopyCtorKind, MoveAsgnKind, CopyAsgnKind, Kind::Deleted>&
-) noexcept(true) {}
-
-template <
-	Kind MoveCtorKind,
-	Kind CopyCtorKind,
-	Kind MoveAsgnKind,
-	Kind CopyAsgnKind,
-	Kind SwapKind
->
-struct get_type_impl {
-	static_assert(static_cast<std::size_t>(MoveCtorKind) < 3u);
-	static_assert(static_cast<std::size_t>(CopyCtorKind) < 3u);
-	static_assert(static_cast<std::size_t>(MoveAsgnKind) < 3u);
-	static_assert(static_cast<std::size_t>(CopyAsgnKind) < 3u);
-	static_assert(static_cast<std::size_t>(SwapKind) < 3u);
-
-	using type = TypeImpl<
-		MoveCtorKind,
-		CopyCtorKind,
-		MoveAsgnKind,
-		CopyAsgnKind,
-		SwapKind
-	>;
-
-	template <
-		Kind K,
-		template <class> class IsEnabled,
-		template <class> class IsNothrow
-	>
-	using check_trait_type = std::conditional_t<
-		(K == Kind::Deleted),
-		std::negation<IsEnabled<type>>,
-		std::conditional_t<
-			(K == Kind::Throwing),
-			std::conjunction<
-				IsEnabled<type>,
-				std::negation<IsNothrow<type>>
-			>,
-			std::conjunction<
-				IsEnabled<type>,
-				IsNothrow<type>
-			>
-		>
-	>;
-	
-	static_assert(
-		check_trait_type<
-			MoveCtorKind,
-			std::is_move_constructible,
-			std::is_nothrow_move_constructible
-		>::value
-	);
-	static_assert(
-		check_trait_type<
-			CopyCtorKind,
-			std::is_copy_constructible,
-			std::is_nothrow_copy_constructible
-		>::value
-	);
-	static_assert(
-		check_trait_type<
-			MoveAsgnKind,
-			std::is_move_assignable,
-			std::is_nothrow_move_assignable
-		>::value
-	);
-	static_assert(
-		check_trait_type<
-			CopyAsgnKind,
-			std::is_copy_assignable,
-			std::is_nothrow_copy_assignable
-		>::value
-	);
-	static_assert(
-		check_trait_type<
-			SwapKind,
-			std::is_swappable,
-			std::is_nothrow_swappable
-		>::value
-	);
-};
-
-template <
-	Kind MoveCtorKind,
-	Kind CopyCtorKind,
-	Kind MoveAsgnKind,
-	Kind CopyAsgnKind,
-	Kind SwapKind
->
-using Type = typename get_type_impl<
-	MoveCtorKind,
-	CopyCtorKind,
-	MoveAsgnKind,
-	CopyAsgnKind,
-	SwapKind
->::type;
-
-
-template <std::size_t Index>
-struct kind_encoding {
-	static constexpr Kind check(Kind k) {
-		switch(k) {
-		default: assert(false && "bad index");
-		case Kind::Deleted: return Kind::Deleted;
-		case Kind::Nothrow: return Kind::Nothrow;
-		case Kind::Throwing: return Kind::Throwing;
-		}
-	}
-
-	static constexpr Kind to_kind(std::size_t idx) {
-		switch(idx) {
-		default: assert(false && "bad index");
-		case 0: return Kind::Deleted;
-		case 1: return Kind::Nothrow;
-		case 2: return Kind::Throwing;
-		}
-	}
-	static constexpr Kind move_ctor_kind() {
-		return check(to_kind(Index % 3));
-	}
-	static constexpr Kind copy_ctor_kind() {
-		return check(to_kind((Index / 3) % 3));
-	}
-	static constexpr Kind move_asgn_kind() {
-		return check(to_kind((Index / 9) % 3));
-	}
-	static constexpr Kind copy_asgn_kind() {
-		return check(to_kind((Index / 27) % 3));
-	}
-	static constexpr Kind swap_kind() {
-		return check(to_kind((Index / 81) % 3));
-	}
-	using type = Type<
-		move_ctor_kind(),
-		copy_ctor_kind(),
-		move_asgn_kind(),
-		copy_asgn_kind(),
-		swap_kind()
-	>;
-};
-
-template <std::size_t I, std::size_t J>
-static constexpr void test_swap_types() {
-	if constexpr(I == 242 && J == 242) {
-		return;
-	} else {
-		using T = typename kind_encoding<I>::type;
-		using E = typename kind_encoding<J>::type;
-		using R = tim::Result<T, E>;
-		constexpr bool has_swap = std::conjunction_v<
-			std::is_swappable<T>,
-			std::is_swappable<E>,
-			std::is_move_constructible<T>,
-			std::is_move_constructible<E>,
-			std::disjunction<
-				std::is_nothrow_move_constructible<T>,
-				std::is_nothrow_move_constructible<E>
-			>
-		>;
-		constexpr bool has_nothrow_swap = std::conjunction_v<
-			std::is_nothrow_swappable<T>,
-			std::is_nothrow_swappable<E>,
-			std::is_nothrow_move_constructible<T>,
-			std::is_nothrow_move_constructible<E>
-		>;
-		constexpr bool has_move_assign = std::conjunction_v<
-			std::is_move_assignable<T>,
-			std::is_move_constructible<T>,
-			std::is_move_assignable<E>,
-			std::is_move_constructible<E>,
-			std::disjunction<
-				std::is_nothrow_move_constructible<T>,
-				std::is_nothrow_move_constructible<E>
-			>
-		>;
-		constexpr bool has_move_constructor = std::conjunction_v<
-			std::is_move_constructible<T>,
-			std::is_move_constructible<E>
-		>;
-		static_assert(is_member_swappable_v<R> == has_swap);
-		static_assert(is_non_member_swappable_v<R> == has_swap);
-		static_assert(std::is_move_assignable_v<R> == has_move_assign);
-		static_assert(std::is_move_constructible_v<R> == has_move_constructor);
-		static_assert(std::is_swappable_v<R> == (has_move_constructor && has_move_assign));
-		static_assert(std::is_swappable_v<R> == (has_move_constructor && has_move_assign));
-		static_assert(std::conditional_t<
-			is_member_swappable_v<R>,
-			std::bool_constant<(std::is_nothrow_swappable_v<R> == has_nothrow_swap)>,
-			std::true_type
-		>::value);
-		if constexpr(J == 242) {
-			return types::test_swap_types<I + 1, 0>();
-		} else {
-			return types::test_swap_types<I, J + 1>();
-		}
-	}
-}
-
-} /* namespace types */
-
 // TEST_CASE("Swap Types Noexcept/Sfinae") {
 // 	types::test_swap_types<0, 1>();
 // }
 
-TEST_CASE("Noexcept Swap") {
-	{
-		using V = tim::Result<int, NothrowMoveable>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(is_std_swappable_v<V>);
-		static_assert(is_non_member_swappable_v<V>);
-		static_assert(is_member_swappable_v<V>);
-		static_assert(std::is_nothrow_swappable_v<V>, "");
-		V v1, v2;
+TEST_CASE("Noexcept Swap Nothrow Moveable Error") {
+	using V = tim::Result<int, NothrowMoveable>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(is_std_swappable_v<V>);
+	static_assert(is_non_member_swappable_v<V>);
+	static_assert(is_member_swappable_v<V>);
+	static_assert(std::is_nothrow_swappable_v<V>, "");
+	V v1, v2;
+	v1.swap(v2);
+	tim::result::swap(v1, v2);
+}
+TEST_CASE("Noexcept Swap Nothrow Moveable Value") {
+	using V = tim::Result<NothrowMoveable, int>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(is_std_swappable_v<V>);
+	static_assert(is_non_member_swappable_v<V>);
+	static_assert(is_member_swappable_v<V>);
+	static_assert(std::is_nothrow_swappable_v<V>, "");
+	V v1, v2;
+	v1.swap(v2);
+	tim::result::swap(v1, v2);
+}
+TEST_CASE("Noexcept Swap Nothrow Move Ctor Error") {
+	using V = tim::Result<int, NothrowMoveCtor>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(is_std_swappable_v<V>);
+	static_assert(is_non_member_swappable_v<V>);
+	static_assert(is_member_swappable_v<V>);
+	static_assert(!std::is_nothrow_swappable_v<V>, "");
+	V v1, v2;
+	v1.swap(v2);
+	tim::result::swap(v1, v2);
+}
+TEST_CASE("Noexcept Swap Nothrow Move Ctor Value") {
+	using V = tim::Result<NothrowMoveCtor, int>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(is_std_swappable_v<V>);
+	static_assert(is_non_member_swappable_v<V>);
+	static_assert(is_member_swappable_v<V>);
+	static_assert(!std::is_nothrow_swappable_v<V>, "");
+	V v1, v2;
+	try {
 		v1.swap(v2);
-		tim::result::swap(v1, v2);
+		REQUIRE(false);
+	} catch(const test_exception&) {
+		
 	}
-	{
-		using V = tim::Result<NothrowMoveable, int>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(is_std_swappable_v<V>);
-		static_assert(is_non_member_swappable_v<V>);
-		static_assert(is_member_swappable_v<V>);
-		static_assert(std::is_nothrow_swappable_v<V>, "");
-		V v1, v2;
+	try {
+		tim::result::swap(v1, v2);
+		REQUIRE(false);
+	} catch(const test_exception&) {
+		
+	}
+}
+TEST_CASE("Noexcept Swap Throwing Type With Nothrow Swap Error") {
+	using V = tim::Result<int, ThrowingTypeWithNothrowSwap>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(is_std_swappable_v<V>);
+	static_assert(is_non_member_swappable_v<V>);
+	static_assert(is_member_swappable_v<V>);
+	static_assert(!std::is_nothrow_swappable_v<V>, "");
+	// instantiate swap
+	V v1, v2;
+	v1.swap(v2);
+	tim::result::swap(v1, v2);
+}
+TEST_CASE("Noexcept Swap Throwing Type With Nothrow Swap Value") {
+	using V = tim::Result<ThrowingTypeWithNothrowSwap, int>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(is_std_swappable_v<V>);
+	static_assert(is_non_member_swappable_v<V>);
+	static_assert(is_member_swappable_v<V>);
+	static_assert(!std::is_nothrow_swappable_v<V>, "");
+	// instantiate swap
+	V v1, v2;
+	v1.swap(v2);
+	tim::result::swap(v1, v2);
+}
+TEST_CASE("Noexcept Swap Throwing Move Assign Nothrow Move Ctor Error") {
+	using V = tim::Result<int, ThrowingMoveAssignNothrowMoveCtor>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(is_std_swappable_v<V>);
+	static_assert(is_non_member_swappable_v<V>);
+	static_assert(is_member_swappable_v<V>);
+	static_assert(!std::is_nothrow_swappable_v<V>, "");
+	// instantiate swap
+	V v1, v2;
+	v1.swap(v2);
+	tim::result::swap(v1, v2);
+}
+TEST_CASE("Noexcept Swap Throwing Move Assign Nothrow Move Ctor Value") {
+	using V = tim::Result<ThrowingMoveAssignNothrowMoveCtor, int>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(is_std_swappable_v<V>);
+	static_assert(is_non_member_swappable_v<V>);
+	static_assert(is_member_swappable_v<V>);
+	static_assert(!std::is_nothrow_swappable_v<V>, "");
+	// instantiate swap
+	V v1, v2;
+	try {
 		v1.swap(v2);
+		REQUIRE(false);
+	} catch(const test_exception&) {
+		
+	}
+	try {
 		tim::result::swap(v1, v2);
+		REQUIRE(false);
+	} catch(const test_exception&) {
+		
 	}
-	{
-		using V = tim::Result<int, NothrowMoveCtor>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(is_std_swappable_v<V>);
-		static_assert(is_non_member_swappable_v<V>);
-		static_assert(is_member_swappable_v<V>);
-		static_assert(!std::is_nothrow_swappable_v<V>, "");
-		V v1, v2;
-		v1.swap(v2);
-		tim::result::swap(v1, v2);
-	}
-	{
-		using V = tim::Result<NothrowMoveCtor, int>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(is_std_swappable_v<V>);
-		static_assert(is_non_member_swappable_v<V>);
-		static_assert(is_member_swappable_v<V>);
-		static_assert(!std::is_nothrow_swappable_v<V>, "");
-		V v1, v2;
-		v1.swap(v2);
-		tim::result::swap(v1, v2);
-	}
-	{
-		using V = tim::Result<int, ThrowingTypeWithNothrowSwap>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(is_std_swappable_v<V>);
-		static_assert(is_non_member_swappable_v<V>);
-		static_assert(is_member_swappable_v<V>);
-		static_assert(!std::is_nothrow_swappable_v<V>, "");
-		// instantiate swap
-		V v1, v2;
-		v1.swap(v2);
-		tim::result::swap(v1, v2);
-	}
-	{
-		using V = tim::Result<ThrowingTypeWithNothrowSwap, int>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(is_std_swappable_v<V>);
-		static_assert(is_non_member_swappable_v<V>);
-		static_assert(is_member_swappable_v<V>);
-		static_assert(!std::is_nothrow_swappable_v<V>, "");
-		// instantiate swap
-		V v1, v2;
-		v1.swap(v2);
-		tim::result::swap(v1, v2);
-	}
-	{
-		using V = tim::Result<int, ThrowingMoveAssignNothrowMoveCtor>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(is_std_swappable_v<V>);
-		static_assert(is_non_member_swappable_v<V>);
-		static_assert(is_member_swappable_v<V>);
-		static_assert(!std::is_nothrow_swappable_v<V>, "");
-		// instantiate swap
-		V v1, v2;
-		v1.swap(v2);
-		tim::result::swap(v1, v2);
-	}
-	{
-		using V = tim::Result<ThrowingMoveAssignNothrowMoveCtor, int>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(is_std_swappable_v<V>);
-		static_assert(is_non_member_swappable_v<V>);
-		static_assert(is_member_swappable_v<V>);
-		static_assert(!std::is_nothrow_swappable_v<V>, "");
-		// instantiate swap
-		V v1, v2;
-		v1.swap(v2);
-		tim::result::swap(v1, v2);
-	}
-	{
-		using V = tim::Result<int, ThrowingMoveAssignNothrowMoveCtorWithSwap>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(is_std_swappable_v<V>);
-		static_assert(is_non_member_swappable_v<V>);
-		static_assert(is_member_swappable_v<V>);
-		static_assert(std::is_nothrow_swappable_v<V>, "");
-		// instantiate swap
-		V v1, v2;
-		v1.swap(v2);
-		tim::result::swap(v1, v2);
-	}
-	{
-		using V = tim::Result<ThrowingMoveAssignNothrowMoveCtorWithSwap, int>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(is_std_swappable_v<V>);
-		static_assert(is_non_member_swappable_v<V>);
-		static_assert(is_member_swappable_v<V>);
-		static_assert(std::is_nothrow_swappable_v<V>, "");
-		// instantiate swap
-		V v1, v2;
-		v1.swap(v2);
-		tim::result::swap(v1, v2);
-	}
-	{
-		using V = tim::Result<int, NotMoveAssignableWithSwap>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(!is_std_swappable_v<V>);
-		static_assert(is_non_member_swappable_v<V>);
-		static_assert(is_member_swappable_v<V>);
-		static_assert(std::is_nothrow_swappable_v<V>, "");
-		// instantiate swap
-		V v1, v2;
-		v1.swap(v2);
-		tim::result::swap(v1, v2);
-	}
-	{
-		using V = tim::Result<NotMoveAssignableWithSwap, int>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(!is_std_swappable_v<V>);
-		static_assert(is_non_member_swappable_v<V>);
-		static_assert(is_member_swappable_v<V>);
-		static_assert(std::is_nothrow_swappable_v<V>, "");
-		// instantiate swap
-		V v1, v2;
-		v1.swap(v2);
-		tim::result::swap(v1, v2);
-	}
-	{
-		using V = tim::Result<int, NotSwappable>;
-		static_assert(std::is_swappable_v<V>);
-		static_assert(is_std_swappable_v<V>);
-		static_assert(!is_non_member_swappable_v<V>);
-		static_assert(!is_member_swappable_v<V>);
-		static_assert(std::is_nothrow_swappable_v<V>, "");
-		V v1, v2;
-		std::swap(v1, v2);
-	}
+}
+TEST_CASE("Noexcept Swap Throwing Move Assign Nothrow Swap Error") {
+	using V = tim::Result<int, ThrowingMoveAssignNothrowMoveCtorWithSwap>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(is_std_swappable_v<V>);
+	static_assert(is_non_member_swappable_v<V>);
+	static_assert(is_member_swappable_v<V>);
+	static_assert(std::is_nothrow_swappable_v<V>, "");
+	// instantiate swap
+	V v1, v2;
+	v1.swap(v2);
+	tim::result::swap(v1, v2);
+}
+TEST_CASE("Noexcept Swap Throwing Move Assign Nothrow Swap Value") {
+	using V = tim::Result<ThrowingMoveAssignNothrowMoveCtorWithSwap, int>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(is_std_swappable_v<V>);
+	static_assert(is_non_member_swappable_v<V>);
+	static_assert(is_member_swappable_v<V>);
+	static_assert(std::is_nothrow_swappable_v<V>, "");
+	// instantiate swap
+	V v1, v2;
+	v1.swap(v2);
+	tim::result::swap(v1, v2);
+}
+TEST_CASE("Noexcept Swap Not Move Assignable With Swap Error") {
+	using V = tim::Result<int, NotMoveAssignableWithSwap>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(!is_std_swappable_v<V>);
+	static_assert(is_non_member_swappable_v<V>);
+	static_assert(is_member_swappable_v<V>);
+	static_assert(std::is_nothrow_swappable_v<V>, "");
+	// instantiate swap
+	V v1, v2;
+	v1.swap(v2);
+	tim::result::swap(v1, v2);
+}
+TEST_CASE("Noexcept Swap Not Move Assignable With Swap Value") {
+	using V = tim::Result<NotMoveAssignableWithSwap, int>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(!is_std_swappable_v<V>);
+	static_assert(is_non_member_swappable_v<V>);
+	static_assert(is_member_swappable_v<V>);
+	static_assert(std::is_nothrow_swappable_v<V>, "");
+	// instantiate swap
+	V v1, v2;
+	v1.swap(v2);
+	tim::result::swap(v1, v2);
+}
+TEST_CASE("Noexcept Swap Not Swappable") {
+	using V = tim::Result<int, NotSwappable>;
+	static_assert(std::is_swappable_v<V>);
+	static_assert(is_std_swappable_v<V>);
+	static_assert(!is_non_member_swappable_v<V>);
+	static_assert(!is_member_swappable_v<V>);
+	static_assert(std::is_nothrow_swappable_v<V>, "");
+	V v1, v2;
+	std::swap(v1, v2);
 }
 
 } /* namespace swap_test_namespace */

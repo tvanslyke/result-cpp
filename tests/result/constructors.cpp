@@ -708,35 +708,28 @@ namespace in_place_tests {
 void test_ctor_sfinae() {
 	{
 		using V = tim::Result<int, int>;
-		static_assert(
-				std::is_constructible<V, tim::in_place_t, int>::value, "");
+		static_assert(std::is_constructible<V, tim::in_place_t, int>::value, "");
 		static_assert(!test_convertible<V, tim::in_place_t, int>(), "");
 	}
 	{
 		using V = tim::Result<int, long>;
-		static_assert(
-				std::is_constructible<V, tim::in_place_error_t, int>::value, "");
+		static_assert(std::is_constructible<V, tim::in_place_error_t, int>::value, "");
 		static_assert(!test_convertible<V, tim::in_place_error_t, int>(), "");
 	}
 	{
 		using V = tim::Result<int, int *>;
-		static_assert(
-				std::is_constructible<V, tim::in_place_error_t, int *>::value, "");
+		static_assert(std::is_constructible<V, tim::in_place_error_t, int *>::value, "");
 		static_assert(!test_convertible<V, tim::in_place_error_t, int *>(), "");
 	}
 	{
 		using V = tim::Result<int, int *>;
-		static_assert(
-				!std::is_constructible<V, tim::in_place_t, int *>::value, "");
+		static_assert(!std::is_constructible<V, tim::in_place_t, int *>::value, "");
 		static_assert(!test_convertible<V, tim::in_place_t, int *>(), "");
 	}
 	{
 		using V = tim::Result<int, long>;
-		static_assert(
-				!std::is_constructible<V, std::in_place_index_t<0>, int>::value, "");
-		static_assert(
-				!std::is_constructible<V, std::in_place_index_t<1>, long>::value, "");
-		static_assert(!test_convertible<V, std::in_place_index_t<2>, int>(), "");
+		static_assert(std::is_constructible<V, tim::in_place_t, int>::value, "");
+		static_assert(std::is_constructible<V, tim::in_place_error_t, long>::value, "");
 	}
 }
 
@@ -783,4 +776,73 @@ TEST_CASE("in_place Constructors", "[constructors]") {
 }
 
 } /* namespace in_place_tests */
+
+namespace in_place_init_list_tests {
+
+struct InitList {
+	std::size_t size;
+	constexpr InitList(std::initializer_list<int> il) : size(il.size()) {}
+};
+
+struct InitListArg {
+	std::size_t size;
+	int value;
+	constexpr InitListArg(std::initializer_list<int> il, int v)
+			: size(il.size()), value(v) {}
+};
+
+void test_ctor_sfinae() {
+	using IL = std::initializer_list<int>;
+	{ // just init list
+		using V = tim::Result<InitList, InitListArg>;
+		static_assert(std::is_constructible<V, tim::in_place_t, IL>::value, "");
+		static_assert(!test_convertible<V, tim::in_place_t, IL>(), "");
+	}
+	{ // too many arguments
+		using V = tim::Result<InitList, InitListArg>;
+		static_assert(!std::is_constructible<V, tim::in_place_t, IL, int>::value, "");
+		static_assert(!test_convertible<V, tim::in_place_t, IL, int>(), "");
+	}
+	{ // too few arguments
+		using V = tim::Result<InitList, InitListArg>;
+		static_assert(!std::is_constructible<V, tim::in_place_error_t, IL>::value, "");
+		static_assert(!test_convertible<V, tim::in_place_error_t, IL>(), "");
+	}
+	{ // init list and arguments
+		using V = tim::Result<InitList, InitListArg>;
+		static_assert(std::is_constructible<V, tim::in_place_error_t, IL, int>::value, "");
+		static_assert(!test_convertible<V, tim::in_place_error_t, IL, int>(), "");
+	}
+	{ // not constructible from arguments
+		using V = tim::Result<InitList, int>;
+		static_assert(!std::is_constructible<V, tim::in_place_error_t, IL>::value, "");
+		static_assert(!test_convertible<V, tim::in_place_error_t, IL>(), "");
+	}
+}
+
+void test_ctor_basic() {
+	{
+		constexpr tim::Result<InitList, InitListArg> v(tim::in_place, {1, 2, 3});
+		static_assert(v.has_value());
+		static_assert(v->size == 3);
+	}
+	{
+		constexpr tim::Result<InitList, InitList> v(tim::in_place_error, {1, 2, 3});
+		static_assert(!v.has_value(), "");
+		static_assert(v.error().size == 3, "");
+	}
+	{
+		constexpr tim::Result<InitList, InitListArg> v(tim::in_place_error, {1, 2, 3, 4}, 42);
+		static_assert(!v.has_value(), "");
+		static_assert(v.error().size == 4, "");
+		static_assert(v.error().value == 42, "");
+	}
+}
+
+TEST_CASE("In-Place Initializer List Constructors") {
+	test_ctor_basic();
+	test_ctor_sfinae();
+}
+
+} /* namespace in_place_init_list_tests */
 

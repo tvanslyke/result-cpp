@@ -146,12 +146,12 @@ void test_basic() {
 		V v(42);
 		auto& ref1 = v.emplace();
 		static_assert(std::is_same_v<int&, decltype(ref1)>, "");
-		assert(v.value() == 0);
-		assert(&ref1 == &v.value());
+		REQUIRE(v.value() == 0);
+		REQUIRE(&ref1 == &v.value());
 		auto& ref2 = v.emplace(42);
 		static_assert(std::is_same_v<int&, decltype(ref2)>, "");
-		assert(v.value() == 42);
-		assert(&ref2 == &v.value());
+		REQUIRE(v.value() == 42);
+		REQUIRE(&ref2 == &v.value());
 	}
 	{
 		using V = tim::Result<int, long>;
@@ -160,15 +160,15 @@ void test_basic() {
 		// default emplace a value
 		auto& ref1 = v.emplace();
 		static_assert(std::is_same_v<int&, decltype(ref1)>, "");
-		assert(v.value() == 0);
-		assert(&ref1 == &v.value());
+		REQUIRE(v.value() == 0);
+		REQUIRE(&ref1 == &v.value());
 		using V2 = tim::Result<OnlyOneCtor, long>;
 		V2 v2(tim::in_place, 1, "asdf");
 		const char* s = "zxvc";
 		auto& ref2 = v2.emplace(3, s);
 		static_assert(std::is_same_v<OnlyOneCtor&, decltype(ref2)>, "");
-		assert(v2.value().int_val == 3);
-		assert(v2.value().str_val == s);
+		REQUIRE(v2.value().int_val == 3);
+		REQUIRE(v2.value().str_val == s);
 	}
 }
 
@@ -231,17 +231,17 @@ void test_basic() {
 	V2 v2(tim::in_place_error, 0);
 	auto& ref1 = v1.emplace({1, 2, 3});
 	static_assert(std::is_same_v<InitList&, decltype(ref1)>, "");
-	assert(v1.value().size == 3);
-	assert(&ref1 == &v1.value());
+	REQUIRE(v1.value().size == 3);
+	REQUIRE(&ref1 == &v1.value());
 	auto& ref2 = v2.emplace({1, 2, 3, 4}, 42);
 	static_assert(std::is_same_v<InitListArg&, decltype(ref2)>, "");
-	assert(v2.value().size == 4);
-	assert(v2.value().value == 42);
-	assert(&ref2 == &v2.value());
+	REQUIRE(v2.value().size == 4);
+	REQUIRE(v2.value().value == 42);
+	REQUIRE(&ref2 == &v2.value());
 	auto& ref3 = v1.emplace({1});
 	static_assert(std::is_same_v<InitList&, decltype(ref3)>, "");
-	assert(v1.value().size == 1);
-	assert(&ref3 == &v1.value());
+	REQUIRE(v1.value().size == 1);
+	REQUIRE(&ref3 == &v1.value());
 }
 
 } /* namespace emplacement_init_list */

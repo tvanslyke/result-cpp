@@ -51,6 +51,39 @@ TEST_CASE("Simple assignment", "[assignment.simple]") {
 	e4 = e1;
 	REQUIRE(e4);
 	REQUIRE((*e4) == 21);
+
+	tim::Result<void, int>                e7  = tim::Error(1);
+	tim::Result<const void, int>          e8  = tim::Error(2);
+	tim::Result<volatile void, int>       e9  = tim::Error(3);
+	tim::Result<const volatile void, int> e10 = tim::Error(4);
+
+	REQUIRE(!e7);
+	REQUIRE(!e8);
+	REQUIRE(!e9);
+	REQUIRE(!e10);
+
+	REQUIRE(e7.error() == 1);
+	REQUIRE(e8.error() == 2);
+	REQUIRE(e9.error() == 3);
+	REQUIRE(e10.error() == 4);
+
+	e7 = e8;
+	REQUIRE(!e7);
+	REQUIRE(e7.error() == 2);
+
+	e8 = e10;
+	REQUIRE(!e8);
+	REQUIRE(e8.error() == 4);
+
+	e8.emplace();
+	REQUIRE(e8);
+
+	e9 = e8;
+	REQUIRE(e9);
+
+	e9 = e10;
+	REQUIRE(!e9);
+	REQUIRE(e9.error() == 4);
 }
 
 TEST_CASE("Assignment deletion", "[assignment.deletion]") {
@@ -70,9 +103,15 @@ TEST_CASE("Assignment deletion", "[assignment.deletion]") {
 		except_move(const except_move &) = default;
 		except_move(except_move &&) noexcept(false){};
 		except_move &operator=(const except_move &) = default;
+		except_move &operator=(except_move &&) noexcept(false) { return *this; }
 	};
 	tim::Result<except_move, except_move> e3 = {};
 	tim::Result<except_move, except_move> e4 = {};
+	static_assert(!std::is_move_assignable_v<tim::Result<except_move, except_move>>);
+	static_assert(std::is_move_assignable_v<tim::Result<int, except_move>>);
+	static_assert(std::is_move_assignable_v<tim::Result<except_move, int>>);
+	static_assert(std::is_move_assignable_v<tim::Result<void, except_move>>);
+	static_assert(std::is_move_assignable_v<tim::Result<void, except_move>>);
 	// e3 = e4; should not compile
 }
 
@@ -231,6 +270,22 @@ TEST_CASE("Copy assignment not noexcept", "[assignment.copy]") {
 		using V = tim::Result<int, CopyDoesThrow>;
 		static_assert(!std::is_nothrow_copy_assignable<V>::value, "");
 	}
+	{
+		using V = tim::Result<void, CopyDoesThrow>;
+		static_assert(!std::is_nothrow_copy_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<const void, CopyDoesThrow>;
+		static_assert(!std::is_nothrow_copy_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<volatile void, CopyDoesThrow>;
+		static_assert(!std::is_nothrow_copy_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<const volatile void, CopyDoesThrow>;
+		static_assert(!std::is_nothrow_copy_assignable<V>::value, "");
+	}
 }
 
 TEST_CASE("Copy assignment sfinae", "[assignment.copy]") {
@@ -239,7 +294,15 @@ TEST_CASE("Copy assignment sfinae", "[assignment.copy]") {
 		static_assert(std::is_copy_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, long>;
+		static_assert(std::is_copy_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, CopyOnly>;
+		static_assert(std::is_copy_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<void, CopyOnly>;
 		static_assert(std::is_copy_assignable<V>::value, "");
 	}
 	{
@@ -247,11 +310,23 @@ TEST_CASE("Copy assignment sfinae", "[assignment.copy]") {
 		static_assert(!std::is_copy_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, NoCopy>;
+		static_assert(!std::is_copy_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, MoveOnly>;
 		static_assert(!std::is_copy_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, MoveOnly>;
+		static_assert(!std::is_copy_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, MoveOnlyNT>;
+		static_assert(!std::is_copy_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<void, MoveOnlyNT>;
 		static_assert(!std::is_copy_assignable<V>::value, "");
 	}
 
@@ -286,7 +361,16 @@ TEST_CASE("Copy assignment sfinae", "[assignment.copy]") {
 		static_assert(std::is_copy_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, NTCopyAssign>;
+		static_assert(!std::is_trivially_copy_assignable<V>::value, "");
+		static_assert(std::is_copy_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, TCopyAssign>;
+		static_assert(std::is_trivially_copy_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<void, TCopyAssign>;
 		static_assert(std::is_trivially_copy_assignable<V>::value, "");
 	}
 	{
@@ -294,13 +378,22 @@ TEST_CASE("Copy assignment sfinae", "[assignment.copy]") {
 		static_assert(std::is_trivially_copy_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, TCopyAssignNTMoveAssign>;
+		static_assert(std::is_trivially_copy_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, CopyOnly>;
+		static_assert(std::is_trivially_copy_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<void, CopyOnly>;
 		static_assert(std::is_trivially_copy_assignable<V>::value, "");
 	}
 	{
 		using V = tim::Result<long, int>;
 		static_assert(std::is_trivially_copy_assignable<V>::value, "");
 	}
+
 	{
 		using V = tim::Result<NTCopyAssign, int>;
 		static_assert(!std::is_trivially_copy_assignable<V>::value, "");
@@ -342,7 +435,29 @@ TEST_CASE("Copy assignment same values", "[assignment.copy]") {
 		REQUIRE(v1.error() == 42);
 	}
 	{
+		using V = tim::Result<void, long>;
+		V v1(tim::Error(43l));
+		V v2(tim::Error(42l));
+		V &vref = (v1 = v2);
+		REQUIRE(&vref == &v1);
+		REQUIRE(!v1.has_value());
+		REQUIRE(v1.error() == 42);
+	}
+	{
 		using V = tim::Result<int, CopyAssign>;
+		V v1(tim::in_place_error, 43);
+		V v2(tim::in_place_error, 42);
+		CopyAssign::reset();
+		V &vref = (v1 = v2);
+		REQUIRE(&vref == &v1);
+		REQUIRE(!v1.has_value());
+		REQUIRE(v1.error().value == 42);
+		REQUIRE(CopyAssign::copy_construct == 0);
+		REQUIRE(CopyAssign::move_construct == 0);
+		REQUIRE(CopyAssign::copy_assign == 1);
+	}
+	{
+		using V = tim::Result<const void, CopyAssign>;
 		V v1(tim::in_place_error, 43);
 		V v2(tim::in_place_error, 42);
 		CopyAssign::reset();
@@ -385,8 +500,36 @@ TEST_CASE("Copy assignment same values", "[assignment.copy]") {
 	}
 	{
 		struct {
+			constexpr ResultT<long> operator()() const {
+				using V = tim::Result<void, long>;
+				V v(tim::Error(43l));
+				V v2(tim::Error(42l));
+				v = v2;
+				return {v.has_value(), v.error()};
+			}
+		} test;
+		constexpr auto result = test();
+		static_assert(!result.has_value, "");
+		static_assert(result.value == 42l, "");
+	}
+	{
+		struct {
 			constexpr ResultT<int> operator()() const {
 				using V = tim::Result<int, TCopyAssign>;
+				V v(tim::in_place_error, 43);
+				V v2(tim::in_place_error, 42);
+				v = v2;
+				return {v.has_value(), v.error().value};
+			}
+		} test;
+		constexpr auto result = test();
+		static_assert(!result.has_value, "");
+		static_assert(result.value == 42, "");
+	}
+	{
+		struct {
+			constexpr ResultT<int> operator()() const {
+				using V = tim::Result<void, TCopyAssign>;
 				V v(tim::in_place_error, 43);
 				V v2(tim::in_place_error, 42);
 				v = v2;
@@ -411,6 +554,20 @@ TEST_CASE("Copy assignment same values", "[assignment.copy]") {
 		static_assert(!result.has_value, "");
 		static_assert(result.value == 42, "");
 	}
+	{
+		struct {
+			constexpr ResultT<int> operator()() const {
+				using V = tim::Result<void, TCopyAssignNTMoveAssign>;
+				V v(tim::in_place_error, 43);
+				V v2(tim::in_place_error, 42);
+				v = v2;
+				return {v.has_value(), v.error().value};
+			}
+		} test;
+		constexpr auto result = test();
+		static_assert(!result.has_value, "");
+		static_assert(result.value == 42, "");
+	}
 }
 
 TEST_CASE("Copy assignment different values", "[assignment.copy]") {
@@ -422,6 +579,35 @@ TEST_CASE("Copy assignment different values", "[assignment.copy]") {
 		REQUIRE(&vref == &v1);
 		REQUIRE(!v1.has_value());
 		REQUIRE(v1.error() == 42);
+	}
+	{
+		using V = tim::Result<int, long>;
+		V v1(43);
+		V v2(tim::in_place_error, 42l);
+		V &vref = (v2 = v1);
+		REQUIRE(&vref == &v2);
+		REQUIRE(v2.has_value());
+		REQUIRE(v2.value() == 43);
+		REQUIRE(v1.has_value());
+		REQUIRE(v1.value() == 43);
+	}
+	{
+		using V = tim::Result<void, long>;
+		V v1;
+		V v2(tim::in_place_error, 42l);
+		V &vref = (v1 = v2);
+		REQUIRE(&vref == &v1);
+		REQUIRE(!v1.has_value());
+		REQUIRE(v1.error() == 42);
+	}
+	{
+		using V = tim::Result<void, long>;
+		V v1;
+		V v2(tim::in_place_error, 42l);
+		V &vref = (v2 = v1);
+		REQUIRE(&vref == &v2);
+		REQUIRE(v2.has_value());
+		REQUIRE(v1.has_value());
 	}
 	{
 		using V = tim::Result<int, CopyAssign>;
@@ -438,6 +624,40 @@ TEST_CASE("Copy assignment different values", "[assignment.copy]") {
 		REQUIRE(CopyAssign::alive == 2);
 		REQUIRE(CopyAssign::copy_construct == 1);
 		REQUIRE(CopyAssign::move_construct == 1);
+		REQUIRE(CopyAssign::copy_assign == 0);
+	}
+	{
+		using V = tim::Result<CopyAssign, int>;
+		CopyAssign::reset();
+		V v1(tim::in_place, 43);
+		V v2(tim::in_place_error, 42);
+		REQUIRE(CopyAssign::copy_construct == 0);
+		REQUIRE(CopyAssign::move_construct == 0);
+		REQUIRE(CopyAssign::alive == 1);
+		V &vref = (v2 = v1);
+		REQUIRE(&vref == &v2);
+		REQUIRE(v2.has_value());
+		REQUIRE(v2.value().value == 43);
+		REQUIRE(CopyAssign::alive == 2);
+		REQUIRE(CopyAssign::copy_construct == 1);
+		REQUIRE(CopyAssign::move_construct == 1);
+		REQUIRE(CopyAssign::copy_assign == 0);
+	}
+	{
+		using V = tim::Result<void, CopyAssign>;
+		CopyAssign::reset();
+		V v1(tim::in_place);
+		V v2(tim::in_place_error, 42);
+		REQUIRE(CopyAssign::copy_construct == 0);
+		REQUIRE(CopyAssign::move_construct == 0);
+		REQUIRE(CopyAssign::alive == 1);
+		V &vref = (v1 = v2);
+		REQUIRE(&vref == &v1);
+		REQUIRE(!v1.has_value());
+		REQUIRE(v1.error().value == 42);
+		REQUIRE(CopyAssign::alive == 2);
+		REQUIRE(CopyAssign::copy_construct == 1);
+		REQUIRE(CopyAssign::move_construct == 0);
 		REQUIRE(CopyAssign::copy_assign == 0);
 	}
 	{
@@ -590,9 +810,37 @@ TEST_CASE("Copy assignment different values", "[assignment.copy]") {
 	}
 	{
 		struct {
+			constexpr ResultT<long> operator()() const {
+				using V = tim::Result<void, long>;
+				V v;
+				V v2(tim::Error(42l));
+				v = v2;
+				return {v.has_value(), v.error()};
+			}
+		} test;
+		constexpr auto result = test();
+		static_assert(!result.has_value, "");
+		static_assert(result.value == 42l, "");
+	}
+	{
+		struct {
 			constexpr ResultT<int> operator()() const {
 				using V = tim::Result<int, TCopyAssign>;
 				V v(tim::in_place, 43);
+				V v2(tim::in_place_error, 42);
+				v = v2;
+				return {v.has_value(), v.error().value};
+			}
+		} test;
+		constexpr auto result = test();
+		static_assert(!result.has_value, "");
+		static_assert(result.value == 42, "");
+	}
+	{
+		struct {
+			constexpr ResultT<int> operator()() const {
+				using V = tim::Result<void, TCopyAssign>;
+				V v(tim::in_place);
 				V v2(tim::in_place_error, 42);
 				v = v2;
 				return {v.has_value(), v.error().value};
@@ -620,6 +868,26 @@ TEST_CASE("Constexpr copy assignment", "[assignment.copy]") {
 	static_assert(test_constexpr_assign_imp<true>(V(42l), 101l), "");
 	static_assert(test_constexpr_assign_imp<true>(V(tim::Error(nullptr)), 101l), "");
 	static_assert(test_constexpr_assign_imp<false>(V(42l), tim::Error(nullptr)), "");
+	static_assert(test_constexpr_assign_imp<false>(V(tim::Error(nullptr)), tim::Error(nullptr)), "");
+}
+
+template <bool HasVal, class ValueType>
+constexpr bool test_constexpr_void_assign_imp(tim::Result<void, void*>&& v, ValueType&& new_value)
+{
+	const tim::Result<void, void*> cp(std::forward<ValueType>(new_value));
+	v = cp;
+	return v.has_value() == HasVal
+		&& (HasVal ? (v && cp) : (!v && !cp) && (v.error() == cp.error()));
+}
+ 
+TEST_CASE("Constexpr copy assignment void value", "[assignment.copy]") {
+	using V = tim::Result<void, void*>;
+	static_assert(std::is_trivially_copyable<V>::value, "");
+	static_assert(std::is_trivially_copy_assignable<V>::value, "");
+	static_assert(test_constexpr_void_assign_imp<true>(V{}, V{}), "");
+	static_assert(test_constexpr_void_assign_imp<true>(V(tim::Error(nullptr)), V{}), "");
+	static_assert(test_constexpr_void_assign_imp<false>(V{}, tim::Error(nullptr)), "");
+	static_assert(test_constexpr_void_assign_imp<false>(V{tim::Error(nullptr)}, tim::Error(nullptr)), "");
 }
 
 } /* namespace copy_assignment */
@@ -746,7 +1014,15 @@ TEST_CASE("Move assignment noexcept", "[assignment.move]") {
 		static_assert(std::is_nothrow_move_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, int>;
+		static_assert(std::is_nothrow_move_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, MoveOnly>;
+		static_assert(std::is_nothrow_move_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<void, MoveOnly>;
 		static_assert(std::is_nothrow_move_assignable<V>::value, "");
 	}
 	{
@@ -754,7 +1030,7 @@ TEST_CASE("Move assignment noexcept", "[assignment.move]") {
 		static_assert(std::is_nothrow_move_assignable<V>::value, "");
 	}
 	{
-		using V = tim::Result<int, MoveOnly>;
+		using V = tim::Result<void, long>;
 		static_assert(std::is_nothrow_move_assignable<V>::value, "");
 	}
 	{
@@ -762,7 +1038,15 @@ TEST_CASE("Move assignment noexcept", "[assignment.move]") {
 		static_assert(!std::is_nothrow_move_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, MoveOnlyNT>;
+		static_assert(!std::is_nothrow_move_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, MoveOnlyOddNothrow>;
+		static_assert(!std::is_nothrow_move_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<void, MoveOnlyOddNothrow>;
 		static_assert(!std::is_nothrow_move_assignable<V>::value, "");
 	}
 
@@ -798,7 +1082,15 @@ TEST_CASE("Move assignment sfinae", "[assignment.move]") {
 		static_assert(std::is_move_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, long>;
+		static_assert(std::is_move_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, CopyOnly>;
+		static_assert(std::is_move_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<void, CopyOnly>;
 		static_assert(std::is_move_assignable<V>::value, "");
 	}
 	{
@@ -806,7 +1098,15 @@ TEST_CASE("Move assignment sfinae", "[assignment.move]") {
 		static_assert(!std::is_move_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, NoCopy>;
+		static_assert(!std::is_move_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, MoveOnly>;
+		static_assert(std::is_move_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<void, MoveOnly>;
 		static_assert(std::is_move_assignable<V>::value, "");
 	}
 	{
@@ -814,7 +1114,15 @@ TEST_CASE("Move assignment sfinae", "[assignment.move]") {
 		static_assert(std::is_move_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, MoveOnlyNT>;
+		static_assert(std::is_move_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, MoveAssignOnly>;
+		static_assert(!std::is_move_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<void, MoveAssignOnly>;
 		static_assert(!std::is_move_assignable<V>::value, "");
 	}
 
@@ -839,8 +1147,6 @@ TEST_CASE("Move assignment sfinae", "[assignment.move]") {
 		static_assert(std::is_move_assignable<V>::value, "");
 	}
 	{
-		// variant only provides move assignment when the types also provide
-		// a move constructor.
 		using V = tim::Result<MoveAssignOnly, int>;
 		static_assert(!std::is_move_assignable<V>::value, "");
 	}
@@ -855,7 +1161,16 @@ TEST_CASE("Move assignment sfinae", "[assignment.move]") {
 		static_assert(std::is_move_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, NTMoveAssign>;
+		static_assert(!std::is_trivially_move_assignable<V>::value, "");
+		static_assert(std::is_move_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, TMoveAssign>;
+		static_assert(std::is_trivially_move_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<void, TMoveAssign>;
 		static_assert(std::is_trivially_move_assignable<V>::value, "");
 	}
 	{
@@ -863,11 +1178,23 @@ TEST_CASE("Move assignment sfinae", "[assignment.move]") {
 		static_assert(std::is_trivially_move_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, TMoveAssignNTCopyAssign>;
+		static_assert(std::is_trivially_move_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, TrivialCopyNontrivialMove>;
 		static_assert(!std::is_trivially_move_assignable<V>::value, "");
 	}
 	{
+		using V = tim::Result<void, TrivialCopyNontrivialMove>;
+		static_assert(!std::is_trivially_move_assignable<V>::value, "");
+	}
+	{
 		using V = tim::Result<int, CopyOnly>;
+		static_assert(std::is_trivially_move_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<void, CopyOnly>;
 		static_assert(std::is_trivially_move_assignable<V>::value, "");
 	}
 
@@ -896,6 +1223,28 @@ TEST_CASE("Move assignment sfinae", "[assignment.move]") {
 		using V = tim::Result<CopyOnly, int>;
 		static_assert(std::is_trivially_move_assignable<V>::value, "");
 	}
+
+
+	{
+		using V = tim::Result<MoveOnlyNT, MoveOnly>;
+		static_assert(std::is_move_assignable<V>::value, "");
+		static_assert(!std::is_nothrow_move_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<MoveOnly, MoveOnlyNT>;
+		static_assert(std::is_move_assignable<V>::value, "");
+		static_assert(!std::is_nothrow_move_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<MoveOnlyNT, MoveOnlyNT>;
+		static_assert(!std::is_move_assignable<V>::value, "");
+		static_assert(!std::is_nothrow_move_assignable<V>::value, "");
+	}
+	{
+		using V = tim::Result<MoveOnly, MoveOnly>;
+		static_assert(std::is_move_assignable<V>::value, "");
+		static_assert(std::is_nothrow_move_assignable<V>::value, "");
+	}
 }
 
 template <typename T> struct ResultT { size_t has_value; T value; };
@@ -911,7 +1260,24 @@ TEST_CASE("Move assignment same values", "[assignment.move]") {
 		REQUIRE(v1.value() == 42);
 	}
 	{
+		using V = tim::Result<void, int>;
+		V v1;
+		V v2;
+		V &vref = (v1 = std::move(v2));
+		REQUIRE(&vref == &v1);
+		REQUIRE(v1.has_value());
+	}
+	{
 		using V = tim::Result<int, long>;
+		V v1(tim::Error(43l));
+		V v2(tim::Error(42l));
+		V &vref = (v1 = std::move(v2));
+		REQUIRE(&vref == &v1);
+		REQUIRE(!v1.has_value());
+		REQUIRE(v1.error() == 42);
+	}
+	{
+		using V = tim::Result<void, long>;
 		V v1(tim::Error(43l));
 		V v2(tim::Error(42l));
 		V &vref = (v1 = std::move(v2));
@@ -931,7 +1297,18 @@ TEST_CASE("Move assignment same values", "[assignment.move]") {
 		REQUIRE(MoveAssign::move_construct == 0);
 		REQUIRE(MoveAssign::move_assign == 1);
 	}
-
+	{
+		using V = tim::Result<void, MoveAssign>;
+		V v1(tim::in_place_error, 43);
+		V v2(tim::in_place_error, 42);
+		MoveAssign::reset();
+		V &vref = (v1 = std::move(v2));
+		REQUIRE(&vref == &v1);
+		REQUIRE(!v1.has_value());
+		REQUIRE(v1.error().value == 42);
+		REQUIRE(MoveAssign::move_construct == 0);
+		REQUIRE(MoveAssign::move_assign == 1);
+	}
 	{
 		struct {
 			constexpr ResultT<int> operator()() const {
@@ -962,8 +1339,36 @@ TEST_CASE("Move assignment same values", "[assignment.move]") {
 	}
 	{
 		struct {
+			constexpr ResultT<long> operator()() const {
+				using V = tim::Result<void, long>;
+				V v(tim::Error(43l));
+				V v2(tim::Error(42l));
+				v = std::move(v2);
+				return {v.has_value(), v.error()};
+			}
+		} test;
+		constexpr auto result = test();
+		static_assert(result.has_value == false, "");
+		static_assert(result.value == 42l, "");
+	}
+	{
+		struct {
 			constexpr ResultT<int> operator()() const {
 				using V = tim::Result<int, TMoveAssign>;
+				V v(tim::in_place_error, 43);
+				V v2(tim::in_place_error, 42);
+				v = std::move(v2);
+				return {v.has_value(), v.error().value};
+			}
+		} test;
+		constexpr auto result = test();
+		static_assert(result.has_value == false, "");
+		static_assert(result.value == 42, "");
+	}
+	{
+		struct {
+			constexpr ResultT<int> operator()() const {
+				using V = tim::Result<void, TMoveAssign>;
 				V v(tim::in_place_error, 43);
 				V v2(tim::in_place_error, 42);
 				v = std::move(v2);
@@ -987,6 +1392,15 @@ TEST_CASE("Move assignment different values", "[assignment.move]") {
 		REQUIRE(v1.error() == 42);
 	}
 	{
+		using V = tim::Result<void, long>;
+		V v1;
+		V v2(tim::Error(42l));
+		V &vref = (v1 = std::move(v2));
+		REQUIRE(&vref == &v1);
+		REQUIRE(!v1.has_value());
+		REQUIRE(v1.error() == 42);
+	}
+	{
 		using V = tim::Result<int, MoveAssign>;
 		V v1(tim::in_place, 43);
 		V v2(tim::in_place_error, 42);
@@ -997,7 +1411,20 @@ TEST_CASE("Move assignment different values", "[assignment.move]") {
 		REQUIRE(v1.error().value == 42);
 		REQUIRE(MoveAssign::move_construct == 1);
 		REQUIRE(MoveAssign::move_assign == 0);
-	}{
+	}
+	{
+		using V = tim::Result<void, MoveAssign>;
+		V v1(tim::in_place);
+		V v2(tim::in_place_error, 42);
+		MoveAssign::reset();
+		V &vref = (v1 = std::move(v2));
+		REQUIRE(&vref == &v1);
+		REQUIRE(!v1.has_value());
+		REQUIRE(v1.error().value == 42);
+		REQUIRE(MoveAssign::move_construct == 1);
+		REQUIRE(MoveAssign::move_assign == 0);
+	}
+	{
 		using V = tim::Result<MoveAssign, int>;
 		V v1(tim::in_place_error, 43);
 		V v2(tim::in_place, 42);
@@ -1026,6 +1453,20 @@ TEST_CASE("Move assignment different values", "[assignment.move]") {
 	{
 		struct {
 			constexpr ResultT<long> operator()() const {
+				using V = tim::Result<void, long>;
+				V v;
+				V v2(tim::Error(42l));
+				v = std::move(v2);
+				return {v.has_value(), v.error()};
+			}
+		} test;
+		constexpr auto result = test();
+		static_assert(result.has_value == false, "");
+		static_assert(result.value == 42l, "");
+	}
+	{
+		struct {
+			constexpr ResultT<long> operator()() const {
 				using V = tim::Result<TMoveAssign, int>;
 				V v(tim::in_place_error, 43);
 				V v2(tim::in_place, 42);
@@ -1035,6 +1476,20 @@ TEST_CASE("Move assignment different values", "[assignment.move]") {
 		} test;
 		constexpr auto result = test();
 		static_assert(result.has_value == true, "");
+		static_assert(result.value == 42, "");
+	}
+	{
+		struct {
+			constexpr ResultT<long> operator()() const {
+				using V = tim::Result<void, TMoveAssign>;
+				V v(tim::in_place);
+				V v2(tim::in_place_error, 42);
+				v = std::move(v2);
+				return {v.has_value(), v.error().value};
+			}
+		} test;
+		constexpr auto result = test();
+		static_assert(result.has_value == false, "");
 		static_assert(result.value == 42, "");
 	}
 }
@@ -1056,6 +1511,26 @@ TEST_CASE("Constexpr move assignment", "[assignment.move]") {
 	static_assert(test_constexpr_assign_imp<true>(V(42l), 101l), "");
 	static_assert(test_constexpr_assign_imp<true>(V(tim::Error(nullptr)), 101l), "");
 	static_assert(test_constexpr_assign_imp<false>(V(42l), tim::Error(nullptr)), "");
+}
+
+template <bool HasVal, class ValueType>
+constexpr bool test_constexpr_void_assign_imp(tim::Result<void, void*>&& v, ValueType&& new_value)
+{
+	tim::Result<void, void*> v2(std::forward<ValueType>(new_value));
+	const auto cp = v2;
+	v = std::move(v2);
+	return v.has_value() == HasVal
+		&& (HasVal ? (v && cp) : (!v && !cp) && (v.error() == cp.error()));
+}
+ 
+TEST_CASE("Constexpr move assignment void value", "[assignment.move]") {
+	using V = tim::Result<void, void*>;
+	static_assert(std::is_trivially_copyable<V>::value, "");
+	static_assert(std::is_trivially_move_assignable<V>::value, "");
+	static_assert(test_constexpr_void_assign_imp<true>(V{}, V{}), "");
+	static_assert(test_constexpr_void_assign_imp<true>(V(tim::Error(nullptr)), V{}), "");
+	static_assert(test_constexpr_void_assign_imp<false>(V{}, tim::Error(nullptr)), "");
+	static_assert(test_constexpr_void_assign_imp<false>(V{tim::Error(nullptr)}, tim::Error(nullptr)), "");
 }
 
 } /* namespace move_assignment */
@@ -1157,7 +1632,32 @@ TEST_CASE("Assignment exception safety") {
 			REQUIRE(r1.error().value == 0);
 		}
 	}
+	{
+		tim::Result<void, CopyAndMoveCtorsThrow> r1(tim::in_place_error, true, true, 0);
+		tim::Result<void, CopyAndMoveCtorsThrow> r2(tim::in_place_error, false, false, 1);
+		r2 = r1;
+		r2 = std::move(r1);
+		r2.emplace();
+		try {
+			r2 = r1;
+			REQUIRE(false);
+		} catch (...) {
+			REQUIRE(r2);
+			REQUIRE(r2.has_value());
+			REQUIRE(r1.error().value == 0);
+		}
+		r2.emplace();
+		try {
+			r2 = std::move(r1);
+			REQUIRE(false);
+		} catch (...) {
+			REQUIRE(r2);
+			REQUIRE(r2.has_value());
+			REQUIRE(r1.error().value == 0);
+		}
+	}
 	static_assert(!std::is_copy_assignable_v<tim::Result<CopyAndMoveCtorsThrow, CopyAndMoveCtorsThrow>>, "");
+	static_assert(!std::is_move_assignable_v<tim::Result<CopyAndMoveCtorsThrow, CopyAndMoveCtorsThrow>>, "");
 }
 
 } /* namespace exception_safety */
@@ -1266,12 +1766,28 @@ TEST_CASE("T assignment noexcept") {
 		using V = tim::Result<ThrowsAssignT, Dummy>;
 		static_assert(!std::is_nothrow_assignable<V, int>::value, "");
 	}
+	{
+		using V = tim::Result<void, NoThrowT>;
+		static_assert(!std::is_nothrow_assignable<V, int>::value, "");
+	}
+	{
+		using V = tim::Result<void, ThrowsCtorT>;
+		static_assert(!std::is_nothrow_assignable<V, int>::value, "");
+	}
+	{
+		using V = tim::Result<void, ThrowsAssignT>;
+		static_assert(!std::is_nothrow_assignable<V, int>::value, "");
+	}
 }
 
 TEST_CASE("T assignment sfinae") {
 	{
 		using V = tim::Result<long, long long>;
 		static_assert(std::is_assignable<V, int>::value, "");
+	}
+	{
+		using V = tim::Result<void, int>;
+		static_assert(!std::is_assignable<V, int>::value, "");
 	}
 	{
 		using V = tim::Result<std::string, std::string>;
@@ -1441,6 +1957,76 @@ TEST_CASE("Conv assignment") {
 	static_assert(std::is_assignable<tim::Result<bool, int>, std::true_type>::value, "");
 	static_assert(!std::is_assignable<tim::Result<bool, int>, ExplicitBool>::value, "");
 	static_assert(!std::is_assignable<tim::Result<bool, int>, std::unique_ptr<char> >::value, "");
+
+
+	static_assert(!std::is_assignable<tim::Result<void, int>, int>::value, "");
+	static_assert(!std::is_assignable<tim::Result<void, int>, void*>::value, "");
+	static_assert(!std::is_assignable<tim::Result<void, long long>, int>::value, "");
+	static_assert(!std::is_assignable<tim::Result<void, int>, int>::value, "");
+	
+	static_assert(!std::is_assignable<tim::Result<void, bool>, decltype("meow")>::value, "");
+
+	static_assert(!std::is_assignable<tim::Result<void, int>, std::true_type>::value, "");
+	static_assert(!std::is_assignable<tim::Result<void, int>, ExplicitBool>::value, "");
+	static_assert(!std::is_assignable<tim::Result<void, int>, std::unique_ptr<char> >::value, "");
+
+	{
+		using V1 = tim::Result<void, std::string>;
+		using V2 = tim::Result<void, const char*>;
+		V1 v1 = tim::Error("string");
+		V2 v2 = tim::Error("const char*");
+		v1 = v2;
+		REQUIRE(v1.error() == "const char*");
+		static_assert(!std::is_assignable_v<V2&, const V1&>);
+	}
+	{
+		using V1 = tim::Result<std::string, int>;
+		using V2 = tim::Result<const char*, int>;
+		V1 v1 = "string";
+		V2 v2 = "const char*";
+		v1 = v2;
+		REQUIRE(v1.value() == "const char*");
+		static_assert(!std::is_assignable_v<V2&, const V1&>);
+	}
+	{
+		struct Base {};
+		struct Derived: Base {};
+		using V1 = tim::Result<void*, Base*>;
+		using V2 = tim::Result<int*, Derived*>;
+		int a = -1;
+		Base b;
+		char c = '\0';
+		Derived d;
+		{
+			V1 v1(tim::in_place, &c);
+			V2 v2(tim::in_place, &a);
+			v1 = v2;
+			REQUIRE(v1);
+			REQUIRE(v1.value() == &a);
+		}
+		{
+			V1 v1(tim::in_place, &c);
+			V2 v2(tim::in_place_error, &d);
+			v1 = v2;
+			REQUIRE(!v1);
+			REQUIRE(v1.error() == &d);
+		}
+		{
+			V1 v1(tim::in_place_error, &b);
+			V2 v2(tim::in_place, &a);
+			v1 = v2;
+			REQUIRE(v1);
+			REQUIRE(v1.value() == &a);
+		}
+		{
+			V1 v1(tim::in_place_error, &b);
+			V2 v2(tim::in_place_error, &d);
+			v1 = v2;
+			REQUIRE(!v1);
+			REQUIRE(v1.error() == &d);
+		}
+		static_assert(!std::is_assignable_v<V2&, const V1&>);
+	}
 }
 
 } /* namespace conv_assignment */

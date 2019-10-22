@@ -245,17 +245,58 @@ TEST_CASE("Equality/Inequality", "[relops]") {
 	REQUIRE(test_inequality_comparable<false, Result<InequalityComparableNonBool, int>, InequalityComparableNonBool>());
 
 
-	REQUIRE(test_relops<true>(Result<void, int>(Error(0)), Error(0)));
-	REQUIRE(test_relops<false>(Result<void, int>(Error(0)), Error(1)));
-	REQUIRE(test_relops<false>(Result<int, int>(1), Error(1)));
-	REQUIRE(test_relops<true>(Result<int, int>(1), 1));
-	REQUIRE(test_relops<false>(Result<int, int>(1), 2));
-	REQUIRE(test_relops<false>(Result<std::string, int>("test"), Error(0)));
-	REQUIRE(test_relops<false>(Result<const char*, int>("test"), Error(0)));
-	REQUIRE(test_relops<true>(Result<const char*, int>(tim::in_place_error, 0), Error(0)));
-	REQUIRE(test_relops<false>(Result<const char*, int>(tim::in_place_error, 1), Error(0)));
-	REQUIRE(test_relops<true>(Result<int, std::string>(tim::in_place_error, "test"), Error("test")));
-	REQUIRE(test_relops<true>(Result<int, std::string>(tim::in_place_error, "test"), Error("test")));
-	REQUIRE(test_relops<false>(Result<int, std::string>(tim::in_place_error, "test"), 0));
+	{
+		REQUIRE(test_relops<true>(Result<void, int>(Error(0)), Error(0)));
+		REQUIRE(test_relops<false>(Result<void, int>(Error(0)), Error(1)));
+		REQUIRE(test_relops<false>(Result<int, int>(1), Error(1)));
+		REQUIRE(test_relops<true>(Result<int, int>(1), 1));
+		REQUIRE(test_relops<false>(Result<int, int>(1), 2));
+		REQUIRE(test_relops<false>(Result<std::string, int>("test"), Error(0)));
+		REQUIRE(test_relops<false>(Result<const char*, int>("test"), Error(0)));
+		REQUIRE(test_relops<true>(Result<const char*, int>(tim::in_place_error, 0), Error(0)));
+		REQUIRE(test_relops<false>(Result<const char*, int>(tim::in_place_error, 1), Error(0)));
+		REQUIRE(test_relops<true>(Result<int, std::string>(tim::in_place_error, "test"), Error("test")));
+		REQUIRE(test_relops<true>(Result<int, std::string>(tim::in_place_error, "test"), Error("test")));
+		REQUIRE(test_relops<false>(Result<int, std::string>(tim::in_place_error, "test"), 0));
+	}
+}
 
+TEST_CASE("Equality/Inequality Same T Same E", "[relops]") {
+	using tim::Result;
+	REQUIRE(test_relops<true>( Result<std::string, int>("test"), Result<std::string, int>("test")));
+	REQUIRE(test_relops<true>( Result<std::string, int>(tim::in_place_error, 42), Result<std::string, int>(tim::Error(42))));
+	REQUIRE(test_relops<false>(Result<std::string, int>("test"), Result<std::string, int>("test2")));
+	REQUIRE(test_relops<false>(Result<std::string, int>("test"), Result<std::string, int>(tim::in_place_error, 42)));
+	REQUIRE(test_relops<false>(Result<std::string, int>(tim::in_place_error, 42), Result<std::string, int>("test")));
+	REQUIRE(test_relops<false>(Result<std::string, int>(tim::in_place_error, 42), Result<std::string, int>(tim::in_place_error, 43)));
+}
+
+TEST_CASE("Equality/Inequality Different T Same E", "[relops]") {
+	using tim::Result;
+	REQUIRE(test_relops<true>( Result<const char*, int>("test"),                  Result<std::string, int>("test")));
+	REQUIRE(test_relops<true>( Result<const char*, int>(tim::in_place_error, 42), Result<std::string, int>(tim::Error(42))));
+	REQUIRE(test_relops<false>(Result<const char*, int>("test"),                  Result<std::string, int>("test2")));
+	REQUIRE(test_relops<false>(Result<const char*, int>("test"),                  Result<std::string, int>(tim::in_place_error, 42)));
+	REQUIRE(test_relops<false>(Result<const char*, int>(tim::in_place_error, 42), Result<std::string, int>("test")));
+	REQUIRE(test_relops<false>(Result<const char*, int>(tim::in_place_error, 42), Result<std::string, int>(tim::in_place_error, 43)));
+}
+
+TEST_CASE("Equality/Inequality Same T Different E", "[relops]") {
+	using tim::Result;
+	REQUIRE(test_relops<true>( Result<std::string, long>("test"),                  Result<std::string, int>("test")));
+	REQUIRE(test_relops<true>( Result<std::string, long>(tim::in_place_error, 42), Result<std::string, int>(tim::Error(42))));
+	REQUIRE(test_relops<false>(Result<std::string, long>("test"),                  Result<std::string, int>("test2")));
+	REQUIRE(test_relops<false>(Result<std::string, long>("test"),                  Result<std::string, int>(tim::in_place_error, 42)));
+	REQUIRE(test_relops<false>(Result<std::string, long>(tim::in_place_error, 42), Result<std::string, int>("test")));
+	REQUIRE(test_relops<false>(Result<std::string, long>(tim::in_place_error, 42), Result<std::string, int>(tim::in_place_error, 43)));
+}
+
+TEST_CASE("Equality/Inequality Different T Different E", "[relops]") {
+	using tim::Result;
+	REQUIRE(test_relops<true>( Result<const char*, long>("test"),                  Result<std::string, int>("test")));
+	REQUIRE(test_relops<true>( Result<const char*, long>(tim::in_place_error, 42), Result<std::string, int>(tim::Error(42))));
+	REQUIRE(test_relops<false>(Result<const char*, long>("test"),                  Result<std::string, int>("test2")));
+	REQUIRE(test_relops<false>(Result<const char*, long>("test"),                  Result<std::string, int>(tim::in_place_error, 42)));
+	REQUIRE(test_relops<false>(Result<const char*, long>(tim::in_place_error, 42), Result<std::string, int>("test")));
+	REQUIRE(test_relops<false>(Result<const char*, long>(tim::in_place_error, 42), Result<std::string, int>(tim::in_place_error, 43)));
 }

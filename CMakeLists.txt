@@ -47,6 +47,9 @@ if(RESULT_ENABLE_TESTS)
 		${CMAKE_CURRENT_SOURCE_DIR}/tests/result/bases.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/tests/result/observers.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/tests/result/swap.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/tests/result/status.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/tests/result/bad_result_access.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/tests/result/destructor.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/tests/result/constructors.cpp)
 
 	AddFailingTest(copy_assign_error_assign_fail ${CMAKE_CURRENT_SOURCE_DIR}/tests/result/fail/copy/copy-assign-error-assign.fail.cpp)

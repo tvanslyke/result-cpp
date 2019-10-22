@@ -12,10 +12,87 @@ inline namespace result {
 template <class T, class E>
 struct Result;
 
-namespace detail {
+template <class E = void, bool CarriesE = false>
+class BadResultAccess;
 
-template <class T>
-using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
+struct in_place_t {};
+inline constexpr in_place_t in_place = in_place_t{};
+
+struct in_place_error_t{};
+inline constexpr in_place_error_t in_place_error = in_place_error_t{};
+
+template <>
+class BadResultAccess<void, true>;
+
+template <>
+class BadResultAccess<void, false>: std::exception {
+public:
+	BadResultAccess() noexcept = default;
+
+	virtual const char* what() const noexcept override {
+		return "bad result access";
+	}
+};
+
+template <class E>
+class BadResultAccess<E, false>: public BadResultAccess<void, false> {
+	static_assert(!std::is_same_v<E, const void>, "Cannot instantiate 'BadResultAccess<E, bool>' for 'E = const void'.");
+	static_assert(!std::is_same_v<E, volatile void>, "Cannot instantiate 'BadResultAccess<E, bool>' for 'E = volatile void'.");
+	static_assert(!std::is_same_v<E, const volatile void>, "Cannot instantiate 'BadResultAccess<E, bool>' for 'E = const volatile void'.");
+	using base_type = BadResultAccess<void>;
+public:
+	using base_type::base_type;
+	BadResultAccess() noexcept = default;
+};
+
+template <class E>
+class BadResultAccess<E, true>: public BadResultAccess<E, false> {
+public:
+	BadResultAccess() noexcept = default;
+
+	template <
+		class Err,
+		std::enable_if_t<
+			!std::is_same_v<std::decay_t<Err>, BadResultAccess>
+			&& std::is_same_v<std::decay_t<Err>, E>
+			&& std::is_constructible_v<E, Err&&>
+		>
+	>
+	explicit constexpr BadResultAccess(Err&& err) noexcept(std::is_nothrow_constructible_v<E, Err&&>):
+		error_(std::forward<Err>(err))
+	{
+
+	}
+
+	template <class ... Args, std::enable_if_t<std::is_constructible_v<E, Args&&...>, bool> = false>
+	explicit constexpr BadResultAccess(tim::in_place_t, Args&& ... args) noexcept(std::is_nothrow_constructible_v<E, Args&&...>):
+		error_(std::forward<Args>(args)...)
+	{
+
+	}
+
+	template <
+		class U, class ... Args,
+		std::enable_if_t<std::is_constructible_v<E, std::initializer_list<U>&, Args&&...>, bool> = false
+	>
+	constexpr BadResultAccess(tim::in_place_t, std::initializer_list<U> ilist ,Args&& ... args) noexcept(
+		std::is_nothrow_constructible_v<E, std::initializer_list<U>&, Args&&...>
+	):
+		error_(ilist, std::forward<Args>(args)...)
+	{
+
+	}
+
+	constexpr const E&  error() const&  { return error_; }
+	constexpr const E&& error() const&& { return std::move(error_); }
+	constexpr       E&  error()      &  { return error_; }
+	constexpr       E&& error()      && { return std::move(error_); }
+
+private:
+	E error_;
+};
+
+namespace detail {
 
 template <class T>
 using is_cv_void = std::is_same<std::remove_cv_t<T>, void>;
@@ -52,8 +129,8 @@ enum class MemberStatus {
 template <MemberStatus S, class T, class E>
 struct ResultUnionImpl;
 
-using value_tag_t = std::in_place_index_t<0>;
-using error_tag_t = std::in_place_index_t<1>;
+struct value_tag_t {};
+struct error_tag_t {};
 
 inline constexpr value_tag_t value_tag = value_tag_t{};
 inline constexpr error_tag_t error_tag = error_tag_t{};
@@ -565,6 +642,27 @@ struct ResultBaseMethods {
 		}
 	}
 
+	[[noreturn]]
+	void throw_bad_result_access() const& noexcept(false) {
+		if constexpr(std::is_constructible_v<E, const E&>) {
+			throw BadResultAccess<E, true>(tim::in_place, this->error());
+		} else {
+			throw BadResultAccess<E, false>();
+		}
+	}
+	
+	[[noreturn]]
+	void throw_bad_result_access() && noexcept(false) {
+		if constexpr(std::is_constructible_v<E, E&&>) {
+			throw BadResultAccess<E, true>(tim::in_place, std::move(this->error()));
+		} else if constexpr(std::is_constructible_v<E, const E&>) {
+			throw BadResultAccess<E, true>(tim::in_place, this->error());
+		} else {
+			throw BadResultAccess<E, false>();
+		}
+	}
+	
+
 private:
 	ResultUnion<T, E> data_;
 	bool has_value_ = true;
@@ -769,6 +867,7 @@ struct ResultDestructor<MemberStatus::Defaulted, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 
 	constexpr ResultDestructor() = default;
 
@@ -795,6 +894,7 @@ struct ResultDestructor<MemberStatus::Defined, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 	
 	constexpr ResultDestructor() = default;
 	constexpr ResultDestructor(const ResultDestructor&) = default;
@@ -823,6 +923,7 @@ struct ResultDefaultConstructor<MemberStatus::Defaulted, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 
 	constexpr ResultDefaultConstructor() = default;
 	constexpr ResultDefaultConstructor(const ResultDefaultConstructor&) = default;
@@ -847,6 +948,7 @@ struct ResultDefaultConstructor<MemberStatus::Deleted, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 
 	constexpr ResultDefaultConstructor() = delete;
 	constexpr ResultDefaultConstructor(const ResultDefaultConstructor&) = default;
@@ -871,6 +973,7 @@ struct ResultDefaultConstructor<MemberStatus::Defined, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 	
 	constexpr ResultDefaultConstructor() noexcept(std::is_nothrow_default_constructible_v<T>):
 		base_type(value_tag)
@@ -900,6 +1003,7 @@ struct ResultCopyConstructor<MemberStatus::Defaulted, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 
 	constexpr ResultCopyConstructor() = default;
 	constexpr ResultCopyConstructor(const ResultCopyConstructor&) = default;
@@ -924,6 +1028,7 @@ struct ResultCopyConstructor<MemberStatus::Deleted, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 
 	constexpr ResultCopyConstructor() = default;
 	constexpr ResultCopyConstructor(const ResultCopyConstructor&) = delete;
@@ -1095,6 +1200,12 @@ struct ResultCopyConstructor<MemberStatus::Defined, T, E>
 		base_.guarded_emplace_value(ilist, std::forward<Args>(args)...);
 	}
 
+	[[noreturn]]
+	void throw_bad_result_access() const& noexcept(false) { base_.throw_bad_result_access(); }
+
+	[[noreturn]]
+	void throw_bad_result_access() && noexcept(false) { std::move(base_).throw_bad_result_access(); }
+
 	constexpr void destruct_value() noexcept {
 		return base_.destruct_value();
 	}
@@ -1129,6 +1240,7 @@ struct ResultMoveConstructor<MemberStatus::Defaulted, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 
 	constexpr ResultMoveConstructor() = default;
 	constexpr ResultMoveConstructor(const ResultMoveConstructor&) = default;
@@ -1157,6 +1269,7 @@ struct ResultMoveConstructor<MemberStatus::Deleted, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 
 	constexpr ResultMoveConstructor() = default;
 	constexpr ResultMoveConstructor(const ResultMoveConstructor&) = default;
@@ -1334,6 +1447,12 @@ struct ResultMoveConstructor<MemberStatus::Defined, T, E> {
 		base_.guarded_emplace_value(ilist, std::forward<Args>(args)...);
 	}
 
+	[[noreturn]]
+	void throw_bad_result_access() const& noexcept(false) { base_.throw_bad_result_access(); }
+
+	[[noreturn]]
+	void throw_bad_result_access() && noexcept(false) { std::move(base_).throw_bad_result_access(); }
+
 	constexpr void destruct_value() noexcept {
 		return base_.destruct_value();
 	}
@@ -1366,6 +1485,7 @@ struct ResultCopyAssign<MemberStatus::Defaulted, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 
 	constexpr ResultCopyAssign() = default;
 	constexpr ResultCopyAssign(const ResultCopyAssign&) = default;
@@ -1390,6 +1510,7 @@ struct ResultCopyAssign<MemberStatus::Deleted, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 
 	constexpr ResultCopyAssign() = default;
 	constexpr ResultCopyAssign(const ResultCopyAssign&) = default;
@@ -1414,6 +1535,7 @@ struct ResultCopyAssign<MemberStatus::Defined, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 	
 	constexpr ResultCopyAssign() = default;
 	constexpr ResultCopyAssign(const ResultCopyAssign& other) = default;
@@ -1504,6 +1626,7 @@ struct ResultMoveAssign<MemberStatus::Defaulted, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 
 	constexpr ResultMoveAssign() = default;
 	constexpr ResultMoveAssign(const ResultMoveAssign&) = default;
@@ -1528,6 +1651,7 @@ struct ResultMoveAssign<MemberStatus::Deleted, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 
 	constexpr ResultMoveAssign() = default;
 	constexpr ResultMoveAssign(const ResultMoveAssign&) = default;
@@ -1552,6 +1676,7 @@ struct ResultMoveAssign<MemberStatus::Defined, T, E>:
 	using base_type::emplace_error;
 	using base_type::guarded_emplace_value;
 	using base_type::guarded_emplace_error;
+	using base_type::throw_bad_result_access;
 	
 	constexpr ResultMoveAssign() = default;
 	constexpr ResultMoveAssign(const ResultMoveAssign& other) = default;
@@ -1620,12 +1745,6 @@ private:
 };
 
 } /* namespace detail */
-
-using in_place_t = std::in_place_t;
-inline constexpr in_place_t in_place = std::in_place;
-
-struct in_place_error_t{};
-inline constexpr in_place_error_t in_place_error = in_place_error_t{};
 
 
 template <class T, class E>
@@ -1937,130 +2056,6 @@ template <class E>
 using error_value_type_t = typename error_value_type<E>::type;
 
 } /* namespace detail */
-
-template <class E>
-class BadResultAccess;
-
-template <>
-class BadResultAccess<void>: std::exception {
-public:
-	BadResultAccess() = default;
-
-	virtual const char* what() const noexcept override {
-		return "bad result access";
-	}
-
-};
-
-template <class E, bool = std::is_copy_constructible_v<E>, bool = std::is_move_constructible_v<E>>
-class BadResultAccessBase;
-
-template <class E>
-class BadResultAccessBase<E, false, false>: BadResultAccess<void> {
-public:
-	BadResultAccessBase() = default;
-
-	constexpr E* error() {
-		return nullptr;
-	}
-
-	constexpr const E* error() const {
-		return nullptr;
-	}
-
-};
-
-template <class E>
-class BadResultAccessBase<E, true, false>: BadResultAccess<void> {
-public:
-	BadResultAccessBase() = default;
-
-	explicit constexpr BadResultAccessBase(E&& err) = delete;
-
-	explicit constexpr BadResultAccessBase(const E& err):
-		BadResultAccess<void>(),
-		error_(std::in_place, err)
-	{
-		
-	}
-
-	constexpr E* error() {
-		return error_ ? std::addressof(*error_) : nullptr;
-	}
-
-	constexpr const E* error() const {
-		return error_ ? std::addressof(*error_) : nullptr;
-	}
-
-private:
-	std::optional<E> error_ = std::nullopt;
-};
-
-template <class E>
-class BadResultAccessBase<E, false, true>: BadResultAccess<void> {
-public:
-	BadResultAccessBase() = default;
-
-	explicit constexpr BadResultAccessBase(const E& err) = delete;
-
-	explicit constexpr BadResultAccessBase(E&& err):
-		BadResultAccess<void>(),
-		error_(std::in_place, std::move(err))
-	{
-		
-	}
-
-	constexpr E* error() {
-		return error_ ? std::addressof(*error_) : nullptr;
-	}
-
-	constexpr const E* error() const {
-		return error_ ? std::addressof(*error_) : nullptr;
-	}
-
-private:
-	std::optional<E> error_ = std::nullopt;
-};
-
-template <class E>
-class BadResultAccessBase<E, true, true>: BadResultAccess<void> {
-public:
-	BadResultAccessBase() = delete;
-
-	explicit constexpr BadResultAccessBase(const E& err):
-		BadResultAccess<void>(),
-		error_(err)
-	{
-		
-	}
-
-	explicit constexpr BadResultAccessBase(E&& err):
-		BadResultAccess<void>(),
-		error_(std::move(err))
-	{
-		
-	}
-
-	constexpr E* error() {
-		return std::addressof(error_);
-	}
-
-	constexpr const E* error() const {
-		return std::addressof(error_);
-	}
-
-private:
-	E error_;
-};
-
-template <class E>
-class BadResultAccess: public BadResultAccessBase<E> {
-	using base_type = BadResultAccessBase<E>;
-public:
-	using base_type::base_type;
-	using base_type::error;
-	BadResultAccess() = default;
-};
 
 template <class T, class E>
 struct Result {
@@ -2741,28 +2736,28 @@ public:
 
 	constexpr const T& value() const& {
 		if(!this->has_value()) {
-			this->throw_bad_result_access();
+			data_.throw_bad_result_access();
 		}
 		return this->val();
 	}
 
 	constexpr const T&& value() const&& {
 		if(!this->has_value()) {
-			std::move(*this).throw_bad_result_access();
+			std::move(data_).throw_bad_result_access();
 		}
 		return std::move(this->val());
 	}
 
 	constexpr T& value() & {
 		if(!this->has_value()) {
-			this->throw_bad_result_access();
+			data_.throw_bad_result_access();
 		}
 		return this->val();
 	}
 
 	constexpr T&& value() && {
 		if(!this->has_value()) {
-			std::move(*this).throw_bad_result_access();
+			std::move(data_).throw_bad_result_access();
 		}
 		return std::move(this->val());
 	}
@@ -2817,24 +2812,6 @@ private:
 #endif
 	}
 
-	[[noreturn]]
-	void throw_bad_result_access() const& noexcept(false) {
-		if constexpr(std::is_copy_constructible_v<E>) {
-			throw BadResultAccess<E>(this->error());
-		} else {
-			throw BadResultAccess<E>();
-		}
-	}
-	
-	[[noreturn]]
-	void throw_bad_result_access() && noexcept(false) {
-		if constexpr(std::is_move_constructible_v<E>) {
-			throw BadResultAccess<E>(std::move(this->error()));
-		} else {
-			throw BadResultAccess<E>();
-		}
-	}
-	
 	constexpr void swap_case(Result& other, std::false_type, std::false_type) {
 		using std::swap;
 		swap(this->err(), other.err());
@@ -2846,18 +2823,18 @@ private:
 
 	static constexpr bool use_T_as_temporary_in_swap() {
 		if constexpr(!std::is_nothrow_move_constructible_v<T>) {
+			// Can't use T as the temporary.
 			return false;
-		}
-		if constexpr(!std::is_nothrow_move_constructible_v<E>) {
+		} else if constexpr(!std::is_nothrow_move_constructible_v<E>) {
+			// Must use T as the temporary.
 			return true;
-		}
-		// If only one of T or E is trivially move constructible, use whichever
-		// that is as the temporary type.
-		if constexpr(std::is_trivially_move_constructible_v<T> != std::is_trivially_move_constructible_v<E>) {
+		} else if constexpr(std::is_trivially_move_constructible_v<T> != std::is_trivially_move_constructible_v<E>) {
+			// If only one of T or E is trivially move constructible, use whichever that is as the temporary type.
 			return std::is_trivially_move_constructible_v<T>;
+		} else {
+			// Heuristic: otherwise use the smaller type as a temporary, ties go to E.
+			return sizeof(T) < sizeof(E);
 		}
-		// Otherwise use the smaller type as a temporary, ties go to T.
-		return sizeof(T) <= sizeof(E);
 	}
 
 	constexpr void swap_case(Result& other, std::true_type, std::false_type) {
@@ -2875,35 +2852,39 @@ private:
 
 	template <class Other, std::enable_if_t<std::is_same_v<std::decay_t<Other>, Result>, bool> = false>
 	constexpr void swap_helper_T_temp(Other& other) {
-		T tmp(std::move(this->val()));
-		this->destruct_value();
 		{
-			auto guard = detail::make_manual_scope_guard([&](){
-				this->data_.emplace_value(std::move(tmp));
-			});
-			this->data_.emplace_error(std::move(other.err()));
-			guard.active = false;
+			T tmp(std::move(this->val()));
+			this->destruct_value();
+			{
+				auto guard = detail::make_manual_scope_guard([&](){
+					this->data_.emplace_value(std::move(tmp));
+				});
+				this->data_.emplace_error(std::move(other.err()));
+				guard.active = false;
+			}
+			this->data_.has_value() = false;
+			other.destruct_error();
+			other.data_.emplace_value(std::move(tmp));
 		}
-		this->data_.has_value() = false;
-		other.destruct_error();
-		other.data_.emplace_value(std::move(tmp));
 		other.data_.has_value() = true;
 	}
 
 	template <class Other, std::enable_if_t<std::is_same_v<std::decay_t<Other>, Result>, bool> = false>
 	constexpr void swap_helper_E_temp(Other& other) {
-		E tmp(std::move(other.err()));
-		other.destruct_error();
 		{
-			auto guard = detail::make_manual_scope_guard([&](){
-				other.data_.emplace_error(std::move(tmp));
-			});
-			other.data_.emplace_value(std::move(this->val()));
-			guard.active = false;
+			E tmp(std::move(other.err()));
+			other.destruct_error();
+			{
+				auto guard = detail::make_manual_scope_guard([&](){
+					other.data_.emplace_error(std::move(tmp));
+				});
+				other.data_.emplace_value(std::move(this->val()));
+				guard.active = false;
+			}
+			other.data_.has_value() = true;
+			this->destruct_value();
+			this->data_.emplace_error(std::move(tmp));
 		}
-		other.data_.has_value() = true;
-		this->destruct_value();
-		this->data_.emplace_error(std::move(tmp));
 		this->data_.has_value() = false;
 	}
 
@@ -3288,13 +3269,13 @@ public:
 
 	constexpr void value() const& {
 		if(!this->has_value()) {
-			this->throw_bad_result_access();
+			data_.throw_bad_result_access();
 		}
 	}
 
 	constexpr void value() && {
 		if(!this->has_value()) {
-			std::move(*this).throw_bad_result_access();
+			std::move(data_).throw_bad_result_access();
 		}
 	}
 
@@ -3331,24 +3312,6 @@ private:
 #endif
 	}
 
-	[[noreturn]]
-	void throw_bad_result_access() const& noexcept(false) {
-		if constexpr(std::is_move_constructible_v<E>) {
-			throw BadResultAccess<E>(this->error());
-		} else {
-			throw BadResultAccess<E>();
-		}
-	}
-	
-	[[noreturn]]
-	void throw_bad_result_access() && noexcept(false) {
-		if constexpr(std::is_move_constructible_v<E>) {
-			throw BadResultAccess<E>(std::move(this->error()));
-		} else {
-			throw BadResultAccess<E>();
-		}
-	}
-	
 	constexpr void destruct_value() noexcept {
 		return data_.destruct_value();
 	}
@@ -3722,13 +3685,13 @@ public:
 
 	constexpr void value() const& {
 		if(!this->has_value()) {
-			this->throw_bad_result_access();
+			data_.throw_bad_result_access();
 		}
 	}
 
 	constexpr void value() && {
 		if(!this->has_value()) {
-			std::move(*this).throw_bad_result_access();
+			std::move(data_).throw_bad_result_access();
 		}
 	}
 
@@ -3765,24 +3728,6 @@ private:
 #endif
 	}
 
-	[[noreturn]]
-	void throw_bad_result_access() const& noexcept(false) {
-		if constexpr(std::is_move_constructible_v<E>) {
-			throw BadResultAccess<E>(this->error());
-		} else {
-			throw BadResultAccess<E>();
-		}
-	}
-	
-	[[noreturn]]
-	void throw_bad_result_access() && noexcept(false) {
-		if constexpr(std::is_move_constructible_v<E>) {
-			throw BadResultAccess<E>(std::move(this->error()));
-		} else {
-			throw BadResultAccess<E>();
-		}
-	}
-	
 	constexpr void destruct_value() noexcept {
 		return data_.destruct_value();
 	}
@@ -4156,13 +4101,13 @@ public:
 
 	constexpr void value() const& {
 		if(!this->has_value()) {
-			this->throw_bad_result_access();
+			data_.throw_bad_result_access();
 		}
 	}
 
 	constexpr void value() && {
 		if(!this->has_value()) {
-			std::move(*this).throw_bad_result_access();
+			std::move(data_).throw_bad_result_access();
 		}
 	}
 
@@ -4199,24 +4144,6 @@ private:
 #endif
 	}
 
-	[[noreturn]]
-	void throw_bad_result_access() const& noexcept(false) {
-		if constexpr(std::is_move_constructible_v<E>) {
-			throw BadResultAccess<E>(this->error());
-		} else {
-			throw BadResultAccess<E>();
-		}
-	}
-	
-	[[noreturn]]
-	void throw_bad_result_access() && noexcept(false) {
-		if constexpr(std::is_move_constructible_v<E>) {
-			throw BadResultAccess<E>(std::move(this->error()));
-		} else {
-			throw BadResultAccess<E>();
-		}
-	}
-	
 	constexpr void destruct_value() noexcept {
 		return data_.destruct_value();
 	}
@@ -4590,13 +4517,13 @@ public:
 
 	constexpr void value() const& {
 		if(!this->has_value()) {
-			this->throw_bad_result_access();
+			data_.throw_bad_result_access();
 		}
 	}
 
 	constexpr void value() && {
 		if(!this->has_value()) {
-			std::move(*this).throw_bad_result_access();
+			std::move(data_).throw_bad_result_access();
 		}
 	}
 
@@ -4633,24 +4560,6 @@ private:
 #endif
 	}
 
-	[[noreturn]]
-	void throw_bad_result_access() const& noexcept(false) {
-		if constexpr(std::is_move_constructible_v<E>) {
-			throw BadResultAccess<E>(this->error());
-		} else {
-			throw BadResultAccess<E>();
-		}
-	}
-	
-	[[noreturn]]
-	void throw_bad_result_access() && noexcept(false) {
-		if constexpr(std::is_move_constructible_v<E>) {
-			throw BadResultAccess<E>(std::move(this->error()));
-		} else {
-			throw BadResultAccess<E>();
-		}
-	}
-	
 	constexpr void destruct_value() noexcept {
 		return data_.destruct_value();
 	}
