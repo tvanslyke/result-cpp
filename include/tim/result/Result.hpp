@@ -2,7 +2,6 @@
 #define TIM_RESULT_HPP
 
 #include <type_traits>
-#include <optional>
 #include <memory>
 
 namespace tim {
