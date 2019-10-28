@@ -1,5 +1,5 @@
-#ifndef TIM_RESULT_HPP
-#define TIM_RESULT_HPP
+#ifndef TIM_EXPECTED_HPP
+#define TIM_EXPECTED_HPP
 
 #include "tim/result/Result.hpp"
 
@@ -49,4 +49,4 @@ namespace traits = tim::result::traits;
 
 } /* namespace tim */
 
-#endif /* TIM_RESULT_HPP */
+#endif /* TIM_EXPECTED_HPP */
