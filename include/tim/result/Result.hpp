@@ -2406,7 +2406,7 @@ public:
 		> = false
 	>
 	constexpr explicit Result(in_place_t, std::initializer_list<U> ilist, Args&& ... args) noexcept(
-		std::is_nothrow_constructible_v<E, std::initializer_list<U>, Args&&...>
+		std::is_nothrow_constructible_v<T, std::initializer_list<U>, Args&&...>
 	):
 		data_(value_tag, ilist, std::forward<Args>(args)...)
 	{
