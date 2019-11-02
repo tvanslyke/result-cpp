@@ -9,6 +9,22 @@
 
 namespace tim {
 
+#ifndef TIM_IN_PLACE_T_DEFINED
+#define TIM_IN_PLACE_T_DEFINED
+
+struct in_place_t {};
+inline constexpr in_place_t in_place = in_place_t{};
+
+#endif /* TIM_IN_PLACE_T_DEFINED */
+
+#ifndef TIM_IN_PLACE_ERROR_T_DEFINED
+#define TIM_IN_PLACE_ERROR_T_DEFINED
+
+struct in_place_error_t{};
+inline constexpr in_place_error_t in_place_error = in_place_error_t{};
+
+#endif /* TIM_IN_PLACE_ERROR_T_DEFINED */
+
 inline namespace result {
 
 template <class T, class E>
@@ -16,12 +32,6 @@ struct Result;
 
 template <class E = void, bool CarriesE = false>
 class BadResultAccess;
-
-struct in_place_t {};
-inline constexpr in_place_t in_place = in_place_t{};
-
-struct in_place_error_t{};
-inline constexpr in_place_error_t in_place_error = in_place_error_t{};
 
 template <>
 class BadResultAccess<void, true>;
@@ -2073,9 +2083,9 @@ struct Result {
 		"Instantiating Result<T, E> for reference type 'T' is not permitted.");
 	static_assert(!std::is_function_v<T>,
 		"Instantiating Result<T, E> for function type 'T' is not permitted.");
-	static_assert(!std::is_same_v<tim::result::in_place_t, std::remove_cv_t<T>>,
+	static_assert(!std::is_same_v<tim::in_place_t, std::remove_cv_t<T>>,
 		"Instantiating Result<T, E> where 'T' is const- or volatile-qualified 'in_place_t' is not permitted.");
-	static_assert(!std::is_same_v<tim::result::in_place_error_t, std::remove_cv_t<T>>,
+	static_assert(!std::is_same_v<tim::in_place_error_t, std::remove_cv_t<T>>,
 		"Instantiating Result<T, E> where 'T' is const- or volatile-qualified 'in_place_error_t' is not permitted.");
 	static_assert(!traits::is_error_v<T>,
 		"Instantiating Result<Error<T>, E> is not permitted.");
